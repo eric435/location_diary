@@ -13,6 +13,9 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 from pathlib import Path
 import environ
 
+# Build paths inside the project like this: BASE_DIR / 'subdir'.
+BASE_DIR = Path(__file__).resolve().parent.parent
+
 env = environ.Env(
     POSTGRES_DB=(str, "location_diary"),
     POSTGRES_USER=(str, "postgres"),
@@ -20,11 +23,7 @@ env = environ.Env(
     POSTGRES_HOST=(str, "127.0.0.1"),
     POSTGRES_PORT=(str, "5435"),
 )
-environ.Env.read_env()
-
-# Build paths inside the project like this: BASE_DIR / 'subdir'.
-BASE_DIR = Path(__file__).resolve().parent.parent
-
+environ.Env.read_env(BASE_DIR.parent / ".env")
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
@@ -96,7 +95,7 @@ DATABASES = {
 }
 
 
-AUTH_USER_MODEL = "apps.users.User"
+AUTH_USER_MODEL = "users.User"
 
 # Password validation
 # https://docs.djangoproject.com/en/6.0/ref/settings/#auth-password-validators
