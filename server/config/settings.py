@@ -13,7 +13,13 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 from pathlib import Path
 import environ
 
-env = environ.Env()
+env = environ.Env(
+    POSTGRES_DB=(str, "location_diary"),
+    POSTGRES_USER=(str, "postgres"),
+    POSTGRES_PASSWORD=(str),
+    POSTGRES_HOST=(str, "127.0.0.1"),
+    POSTGRES_PORT=(str, "5435"),
+)
 environ.Env.read_env()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -84,8 +90,8 @@ DATABASES = {
         "NAME": env("POSTGRES_DB"),
         "USER": env("POSTGRES_USER"),
         "PASSWORD": env("POSTGRES_PASSWORD"),
-        "HOST": env("POSTGRES_HOST", default="127.0.0.1"),
-        "PORT": env("POSTGRES_PORT", default="5432"),
+        "HOST": env("POSTGRES_HOST"),
+        "PORT": env("POSTGRES_PORT"),
     }
 }
 
@@ -111,8 +117,8 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 AUTHENTICATION_BACKENDS = [
-  "apps.users.backends.EmailBackend",
-  "django.contrib.auth.backends.ModelBackend",
+    "apps.users.backends.EmailBackend",
+    "django.contrib.auth.backends.ModelBackend",
 ]
 
 

@@ -10,3 +10,6 @@ dependencies = [
     "djangorestframework>=3.17.1",
     "psycopg>=3.3.4",
 ]
+
+[dependency-groups]
+dev = []

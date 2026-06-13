@@ -30,6 +30,9 @@ requires-dist = [
     { name = "psycopg", specifier = ">=3.3.4" },
 ]
 
+[package.metadata.requires-dev]
+dev = []
+
 [[package]]
 name = "django"
 version = "6.0.6"
