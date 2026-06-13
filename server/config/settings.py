@@ -22,6 +22,8 @@ env = environ.Env(
     POSTGRES_PASSWORD=(str),
     POSTGRES_HOST=(str, "127.0.0.1"),
     POSTGRES_PORT=(str, "5435"),
+    GDAL_LIBRARY_PATH=(str, "/opt/homebrew/lib/libgdal.dylib"),
+    GEOS_LIBRARY_PATH=(str, "/opt/homebrew/lib/libgeos_c.dylib"),
 )
 environ.Env.read_env(BASE_DIR.parent / ".env")
 
@@ -46,8 +48,12 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "django.contrib.gis",
     "rest_framework",
     "apps.users",
+    "apps.location",
+    "apps.events",
+    "apps.media",
 ]
 
 MIDDLEWARE = [
@@ -85,7 +91,7 @@ WSGI_APPLICATION = "config.wsgi.application"
 
 DATABASES = {
     "default": {
-        "ENGINE": "django.db.backends.postgresql",
+        "ENGINE": "django.contrib.gis.db.backends.postgis",
         "NAME": env("POSTGRES_DB"),
         "USER": env("POSTGRES_USER"),
         "PASSWORD": env("POSTGRES_PASSWORD"),
@@ -137,3 +143,17 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = "static/"
+
+GDAL_LIBRARY_PATH = env("GDAL_LIBRARY_PATH")
+GEOS_LIBRARY_PATH = env("GEOS_LIBRARY_PATH")
+
+REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "rest_framework.authentication.SessionAuthentication",
+    ],
+    "DEFAULT_PERMISSION_CLASSES": [
+        "rest_framework.permissions.IsAuthenticated",
+    ],
+    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
+    "PAGE_SIZE": 20,
+}
