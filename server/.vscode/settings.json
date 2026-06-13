@@ -9,5 +9,8 @@
     "editor.tabSize": 4,
     "editor.insertSpaces": true,
     "editor.detectIndentation": false
+  },
+  "python.analysis.diagnosticSeverityOverrides": {
+    "reportIncompatibleVariableOverride": "none"
   }
 }

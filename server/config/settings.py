@@ -10,8 +10,11 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
+from datetime import timedelta
 from pathlib import Path
+
 import environ
+from google.oauth2 import service_account
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -21,9 +24,12 @@ env = environ.Env(
     POSTGRES_USER=(str, "postgres"),
     POSTGRES_PASSWORD=(str),
     POSTGRES_HOST=(str, "127.0.0.1"),
-    POSTGRES_PORT=(str, "5435"),
-    GDAL_LIBRARY_PATH=(str, "/opt/homebrew/lib/libgdal.dylib"),
-    GEOS_LIBRARY_PATH=(str, "/opt/homebrew/lib/libgeos_c.dylib"),
+    POSTGRES_PORT=(str, "5432"),
+    GDAL_LIBRARY_PATH=(str),
+    GEOS_LIBRARY_PATH=(str),
+    GS_BUCKET_NAME=(str),
+    GS_PROJECT_ID=(str),
+    GS_CREDENTIALS_FILE=(str),
 )
 environ.Env.read_env(BASE_DIR.parent / ".env")
 
@@ -38,6 +44,38 @@ DEBUG = True
 
 ALLOWED_HOSTS = []
 
+# --- File storage: private Google Cloud Storage bucket, signed (expiring) URLs ---
+# Media files never flow through Django; the API hands clients short-lived signed
+# URLs and they read/write directly against GCS. The bucket must stay private.
+GS_BUCKET_NAME = env("GS_BUCKET_NAME")
+GS_PROJECT_ID = env("GS_PROJECT_ID")
+_gs_credentials_file = env.str("GS_CREDENTIALS_FILE")
+# Credentials are needed both to access objects AND to sign URLs locally.
+# Resolve the path against the repo root (same base as .env) so it doesn't
+# depend on the current working directory.
+GS_CREDENTIALS = (
+    service_account.Credentials.from_service_account_file(
+        BASE_DIR.parent / _gs_credentials_file
+    )
+    if _gs_credentials_file
+    else None
+)
+GS_DEFAULT_ACL = None  # objects inherit the bucket's (private) access; never public
+GS_QUERYSTRING_AUTH = True  # .url returns a signed URL instead of a bare path
+GS_EXPIRATION = timedelta(minutes=15)  # how long a signed URL stays valid
+GS_FILE_OVERWRITE = False  # keep distinct uploads from clobbering each other
+
+STORAGES = {
+    # Default = media/user uploads -> GCS
+    "default": {
+        "BACKEND": "storages.backends.gcloud.GoogleCloudStorage",
+    },
+    # Static assets stay local for now
+    "staticfiles": {
+        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+    },
+}
+
 
 # Application definition
 
@@ -50,6 +88,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "django.contrib.gis",
     "rest_framework",
+    "storages",
     "apps.users",
     "apps.location",
     "apps.events",
