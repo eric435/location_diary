@@ -19,7 +19,7 @@ class EmailBackend(ModelBackend):
             user = User.objects.get(email__iexact=username)
         except User.DoesNotExist:
             return None
-        if password == None:
+        if password is None:
             return None
         if user.check_password(password) and self.user_can_authenticate(user):
             return user
