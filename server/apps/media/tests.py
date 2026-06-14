@@ -69,13 +69,13 @@ def test_list_returns_only_own_media(auth_client, event, other_event, media_stor
 
     assert resp.status_code == 200
     returned_ids = [row["id"] for row in resp.data["results"]]
-    assert returned_ids == [mine.id]
+    assert returned_ids == [mine.pk]
 
 
 def test_cannot_retrieve_another_users_media(auth_client, other_event, media_storage):
     theirs = _make_media(other_event)
 
-    resp = auth_client.get(f"{MEDIA_URL}{theirs.id}/")
+    resp = auth_client.get(f"{MEDIA_URL}{theirs.pk}/")
 
     # Not in the requester's queryset -> 404, not 403 (don't leak existence).
     assert resp.status_code == 404
@@ -119,11 +119,11 @@ def test_list_can_filter_by_event(auth_client, user, media_storage):
     keep = _make_media(e1)
     _make_media(e2)
 
-    resp = auth_client.get(f"{MEDIA_URL}?event={e1.id}")
+    resp = auth_client.get(f"{MEDIA_URL}?event={e1.pk}")
 
     assert resp.status_code == 200
     returned_ids = [row["id"] for row in resp.data["results"]]
-    assert returned_ids == [keep.id]
+    assert returned_ids == [keep.pk]
 
 
 def test_list_filter_by_location(auth_client, event, location, media_storage):
@@ -140,7 +140,7 @@ def test_list_filter_by_location(auth_client, event, location, media_storage):
 
     assert resp.status_code == 200
     returned_ids = [row["id"] for row in resp.data["results"]]
-    assert returned_ids == [on_location.id]
+    assert returned_ids == [on_location.pk]
 
 
 def test_bad_filter_value_is_a_400(auth_client, media_storage):
@@ -167,7 +167,7 @@ def _make_geotagged(event, lng, lat, name="geo.png"):
 def test_point_exposed_as_lat_lng(auth_client, event, media_storage):
     m = _make_geotagged(event, lng=-123.1, lat=49.2)
 
-    resp = auth_client.get(f"{MEDIA_URL}{m.id}/")
+    resp = auth_client.get(f"{MEDIA_URL}{m.pk}/")
 
     assert resp.status_code == 200
     assert resp.data["lat"] == 49.2
@@ -177,7 +177,7 @@ def test_point_exposed_as_lat_lng(auth_client, event, media_storage):
 def test_untagged_media_has_null_lat_lng(auth_client, event, media_storage):
     m = _make_media(event)
 
-    resp = auth_client.get(f"{MEDIA_URL}{m.id}/")
+    resp = auth_client.get(f"{MEDIA_URL}{m.pk}/")
 
     assert resp.data["lat"] is None
     assert resp.data["lng"] is None
@@ -205,8 +205,8 @@ def test_near_filter_returns_nearest_first(auth_client, event, media_storage):
 
     assert resp.status_code == 200
     returned_ids = [row["id"] for row in resp.data["results"]]
-    assert returned_ids == [near.id]
-    assert far.id not in returned_ids
+    assert returned_ids == [near.pk]
+    assert far.pk not in returned_ids
 
 
 def test_near_filter_bad_format_is_a_400(auth_client, media_storage):
