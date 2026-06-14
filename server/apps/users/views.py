@@ -35,6 +35,26 @@ class RegisterView(generics.CreateAPIView):
         login(self.request, user, backend="apps.users.backends.EmailBackend")
 
 
+class SoftValidateView(APIView):
+    """Public: validate registration fields without creating an account."""
+
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        # partial=True so a single field can be checked without the others
+        # tripping "this field is required".
+        serializer = UserSerializer(data=request.data, partial=True)
+        if serializer.is_valid():
+            data = {"valid": True}
+        else:
+            data = {
+                "valid": False,
+                "email": serializer.errors.get("email"),
+                "password": serializer.errors.get("password"),
+            }
+        return Response(data, status=status.HTTP_200_OK)
+
+
 class LoginView(APIView):
     """Public: establish a session from email + password."""
 

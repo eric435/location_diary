@@ -9,6 +9,7 @@ from rest_framework.test import APIClient
 from apps.users.models import User
 
 REGISTER_URL = "/api/auth/register/"
+VALIDATE_URL = "/api/auth/validate/"
 LOGIN_URL = "/api/auth/login/"
 LOGOUT_URL = "/api/auth/logout/"
 ME_URL = "/api/auth/me/"
@@ -110,6 +111,48 @@ def test_register_rejects_weak_password(api_client, db):
         REGISTER_URL, {"email": "weak@example.com", "password": "123"}
     )
     assert resp.status_code == 400
+
+
+# --- soft validation API ----------------------------------------------------
+# The endpoint mirrors registration validation without creating an account, so
+# the SPA can surface field errors inline as the user types. partial=True means
+# each field is judged on its own; an absent field is simply not reported on.
+
+
+def test_validate_flags_existing_email(api_client, user):
+    resp = api_client.post(VALIDATE_URL, {"email": user.email})
+    assert resp.status_code == 200
+    assert resp.data["valid"] is False
+    assert resp.data["email"]  # a non-empty error list for the taken email
+
+
+def test_validate_flags_short_password(api_client, db):
+    resp = api_client.post(VALIDATE_URL, {"password": "ab1"})
+    assert resp.status_code == 200
+    assert resp.data["valid"] is False
+    assert resp.data["password"]
+
+
+def test_validate_flags_numeric_password(api_client, db):
+    resp = api_client.post(VALIDATE_URL, {"password": "85213947"})
+    assert resp.status_code == 200
+    assert resp.data["valid"] is False
+    assert resp.data["password"]
+
+
+def test_validate_flags_common_password(api_client, db):
+    resp = api_client.post(VALIDATE_URL, {"password": "password"})
+    assert resp.status_code == 200
+    assert resp.data["valid"] is False
+    assert resp.data["password"]
+
+
+def test_validate_passes_clean_fields(api_client, db):
+    resp = api_client.post(
+        VALIDATE_URL, {"email": "fresh@example.com", "password": "sup3r-secret!"}
+    )
+    assert resp.status_code == 200
+    assert resp.data["valid"] is True
 
 
 # --- login / logout / me API ------------------------------------------------
