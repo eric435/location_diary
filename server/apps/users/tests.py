@@ -1,5 +1,5 @@
-"""Users app: custom email-based model/manager/backend (passing) plus the
-session-auth API surface (register / login / logout / me) — TODO, not built yet.
+"""Users app: custom email-based model/manager/backend plus the session-auth
+API surface (register / login / logout / me).
 """
 
 import pytest
@@ -13,7 +13,7 @@ LOGOUT_URL = "/api/auth/logout/"
 ME_URL = "/api/auth/me/"
 
 
-# --- model + manager (implemented) ------------------------------------------
+# --- model + manager ------------------------------------------
 
 
 def test_create_user_lowercases_email(db):
@@ -70,7 +70,7 @@ def test_backend_rejects_missing_password(db, user):
     assert authenticate(username=user.email, password=None) is None
 
 
-# --- registration API (TODO) ------------------------------------------------
+# --- registration API -------------------------------------------------------
 
 
 def test_register_creates_user(api_client, db):
@@ -81,6 +81,17 @@ def test_register_creates_user(api_client, db):
     assert User.objects.filter(email="new@example.com").exists()
     # The password (hash or raw) must never come back in the response.
     assert "password" not in resp.data
+
+
+def test_register_logs_in_user(api_client, db):
+    # Registration also establishes a session (auto-login): the same client can
+    # immediately reach an authenticated endpoint without a separate login call.
+    api_client.post(
+        REGISTER_URL, {"email": "new@example.com", "password": "sup3r-secret!"}
+    )
+    me = api_client.get(ME_URL)
+    assert me.status_code == 200
+    assert me.data["email"] == "new@example.com"
 
 
 def test_register_rejects_duplicate_email(api_client, user):
@@ -98,12 +109,19 @@ def test_register_rejects_weak_password(api_client, db):
     assert resp.status_code == 400
 
 
-# --- login / logout / me API (TODO) -----------------------------------------
+# --- login / logout / me API ------------------------------------------------
 
 
 def test_login_succeeds_with_valid_credentials(api_client, user):
     resp = api_client.post(LOGIN_URL, {"email": user.email, "password": "pw12345!"})
     assert resp.status_code == 200
+
+
+def test_login_establishes_usable_session(api_client, user):
+    # A successful login isn't just a 200 — the session cookie it sets must
+    # authenticate a subsequent request from the same client.
+    api_client.post(LOGIN_URL, {"email": user.email, "password": "pw12345!"})
+    assert api_client.get(ME_URL).status_code == 200
 
 
 def test_login_fails_with_bad_credentials(api_client, user):
@@ -123,3 +141,12 @@ def test_me_requires_authentication(api_client, db):
 
 def test_logout_ends_session(auth_client):
     assert auth_client.post(LOGOUT_URL).status_code in (200, 204)
+
+
+def test_logout_actually_clears_session(api_client, user):
+    # Use a real session login (not force_authenticate) so logout has a session
+    # to tear down: afterwards the same client must be unauthenticated again.
+    api_client.post(LOGIN_URL, {"email": user.email, "password": "pw12345!"})
+    assert api_client.get(ME_URL).status_code == 200
+    api_client.post(LOGOUT_URL)
+    assert api_client.get(ME_URL).status_code == 403
