@@ -5,11 +5,11 @@
 // location_detail so the caller gets a fully up-to-date row.
 import { computed, ref, watch } from 'vue'
 import Dialog from 'primevue/dialog'
-import DatePicker from 'primevue/datepicker'
 import Button from 'primevue/button'
 import Message from 'primevue/message'
 import { useToast } from 'primevue/usetoast'
 import LocationFields from '@/components/locations/LocationFields.vue'
+import TimingFields from '@/components/locations/TimingFields.vue'
 import { type Coords } from '@/components/locations/LocationMap.vue'
 import {
   toWkt,
@@ -17,6 +17,7 @@ import {
   updateLocation,
   type EventLocation,
 } from '@/lib/diary'
+import { toIsoOrNull } from '@/lib/format'
 import { ApiError } from '@/lib/http'
 
 const props = defineProps<{
@@ -72,8 +73,8 @@ async function onSubmit() {
       point: toWkt(point.value!.lng, point.value!.lat),
     })
     const updated = await updateEventLocation(props.link.id, {
-      arrival: arrival.value ? arrival.value.toISOString() : null,
-      departure: departure.value ? departure.value.toISOString() : null,
+      arrival: toIsoOrNull(arrival.value),
+      departure: toIsoOrNull(departure.value),
     })
     toast.add({ severity: 'success', summary: 'Location updated', life: 2500 })
     emit('saved', updated)
@@ -105,30 +106,7 @@ async function onSubmit() {
 
       <LocationFields v-model:title="title" v-model:point="point" />
 
-      <div class="edit-form__times">
-        <div class="field">
-          <label for="edit-arrival">Arrival (optional)</label>
-          <DatePicker
-            input-id="edit-arrival"
-            v-model="arrival"
-            show-time
-            hour-format="24"
-            show-button-bar
-            fluid
-          />
-        </div>
-        <div class="field">
-          <label for="edit-departure">Departure (optional)</label>
-          <DatePicker
-            input-id="edit-departure"
-            v-model="departure"
-            show-time
-            hour-format="24"
-            show-button-bar
-            fluid
-          />
-        </div>
-      </div>
+      <TimingFields v-model:arrival="arrival" v-model:departure="departure" />
     </form>
 
     <template #footer>
@@ -144,17 +122,5 @@ async function onSubmit() {
   flex-direction: column;
   gap: 1rem;
   padding-top: 0.5rem;
-}
-
-.edit-form__times {
-  display: flex;
-  gap: 1rem;
-}
-
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  flex: 1;
 }
 </style>

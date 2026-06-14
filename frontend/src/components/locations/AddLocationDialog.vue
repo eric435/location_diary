@@ -9,11 +9,11 @@ import { computed, ref, watch } from 'vue'
 import Dialog from 'primevue/dialog'
 import SelectButton from 'primevue/selectbutton'
 import Select from 'primevue/select'
-import DatePicker from 'primevue/datepicker'
 import Button from 'primevue/button'
 import Message from 'primevue/message'
 import { useToast } from 'primevue/usetoast'
 import LocationFields from '@/components/locations/LocationFields.vue'
+import TimingFields from '@/components/locations/TimingFields.vue'
 import { type Coords } from '@/components/locations/LocationMap.vue'
 import {
   createLocation,
@@ -23,6 +23,7 @@ import {
   type DiaryLocation,
   type EventLocation,
 } from '@/lib/diary'
+import { toIsoOrNull } from '@/lib/format'
 import { ApiError } from '@/lib/http'
 
 const props = defineProps<{
@@ -125,8 +126,8 @@ async function onSubmit() {
     const link = await linkLocation({
       event: props.eventId,
       location: locationId,
-      arrival: arrival.value ? arrival.value.toISOString() : null,
-      departure: departure.value ? departure.value.toISOString() : null,
+      arrival: toIsoOrNull(arrival.value),
+      departure: toIsoOrNull(departure.value),
     })
     toast.add({ severity: 'success', summary: 'Location added', life: 2500 })
     emit('added', link)
@@ -184,30 +185,7 @@ async function onSubmit() {
         </div>
       </template>
 
-      <div class="loc-coords">
-        <div class="field">
-          <label for="loc-arrival">Arrival (optional)</label>
-          <DatePicker
-            input-id="loc-arrival"
-            v-model="arrival"
-            show-time
-            hour-format="24"
-            show-button-bar
-            fluid
-          />
-        </div>
-        <div class="field">
-          <label for="loc-departure">Departure (optional)</label>
-          <DatePicker
-            input-id="loc-departure"
-            v-model="departure"
-            show-time
-            hour-format="24"
-            show-button-bar
-            fluid
-          />
-        </div>
-      </div>
+      <TimingFields v-model:arrival="arrival" v-model:departure="departure" />
     </form>
 
     <template #footer>
@@ -230,10 +208,5 @@ async function onSubmit() {
   flex-direction: column;
   gap: 0.35rem;
   flex: 1;
-}
-
-.loc-coords {
-  display: flex;
-  gap: 1rem;
 }
 </style>

@@ -14,6 +14,7 @@ import AddLocationDialog from '@/components/locations/AddLocationDialog.vue'
 import EditLocationDialog from '@/components/locations/EditLocationDialog.vue'
 import LocationMap, { type MapPoint } from '@/components/locations/LocationMap.vue'
 import { useEventsStore } from '@/stores/events'
+import { formatDate, formatDateTime } from '@/lib/format'
 import { ApiError } from '@/lib/http'
 import {
   getEvent,
@@ -73,15 +74,7 @@ function toggleSelect(id: number) {
   selectedId.value = selectedId.value === id ? null : id
 }
 
-const createdLabel = computed(() =>
-  event.value
-    ? new Date(event.value.created_at).toLocaleDateString(undefined, {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-      })
-    : '',
-)
+const createdLabel = computed(() => (event.value ? formatDate(event.value.created_at) : ''))
 
 onMounted(load)
 
@@ -183,15 +176,6 @@ function confirmRemoveLocation(link: EventLocation) {
   })
 }
 
-function timeLabel(value: string | null): string {
-  if (!value) return '—'
-  return new Date(value).toLocaleString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-}
 </script>
 
 <template>
@@ -289,8 +273,8 @@ function timeLabel(value: string | null): string {
                 </div>
               </div>
               <div class="loc-item__times">
-                <span>Arrival: {{ timeLabel(link.arrival) }}</span>
-                <span>Departure: {{ timeLabel(link.departure) }}</span>
+                <span>Arrival: {{ formatDateTime(link.arrival) }}</span>
+                <span>Departure: {{ formatDateTime(link.departure) }}</span>
               </div>
               <Button
                 icon="pi pi-pencil"

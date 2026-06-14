@@ -27,11 +27,11 @@ async function onSubmit() {
     router.push({ name: 'home' })
   } catch (e) {
     if (e instanceof ApiError) {
-      console.log(e.data)
-      const emailErrors = e.data?.email ?? []
-      const passwordErrors = e.data?.password ?? []
-      const errorDetail: string[] = e.data?.detail ? [e.data.detail] : []
-      errors.value = [...emailErrors, ...passwordErrors, ...errorDetail]
+      // Surface field errors under their fields; keep any top-level detail in
+      // the banner.
+      emailErrors.value = e.data?.email ?? []
+      passwordErrors.value = e.data?.password ?? []
+      errors.value = e.data?.detail ? [e.data.detail] : []
     } else {
       errors.value = ['Something went wrong. Please try again.']
     }
@@ -51,7 +51,7 @@ async function validate() {
   }
 }
 
-async function clearEmailErrors() {
+function clearEmailErrors() {
   emailErrors.value = []
 }
 

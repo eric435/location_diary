@@ -5,19 +5,14 @@ import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import Button from 'primevue/button'
 import type { DiaryEvent } from '@/lib/diary'
+import { formatDate } from '@/lib/format'
 
 const props = defineProps<{ event: DiaryEvent }>()
 const emit = defineEmits<{ edit: [event: DiaryEvent]; delete: [event: DiaryEvent] }>()
 
 const router = useRouter()
 
-const createdLabel = computed(() =>
-  new Date(props.event.created_at).toLocaleDateString(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  }),
-)
+const createdLabel = computed(() => formatDate(props.event.created_at, 'short'))
 
 function open() {
   router.push({ name: 'event-detail', params: { id: props.event.id } })
