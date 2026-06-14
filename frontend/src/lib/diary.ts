@@ -46,6 +46,25 @@ export interface EventLocation {
   departure: string | null
 }
 
+/**
+ * A piece of media attached to an event (and optionally one of its locations).
+ * The raw upload is write-only: the API derives `mime_type`/`media_type` from
+ * it and hands back `file_url`, a short-lived signed URL, for display/download.
+ */
+export interface Media {
+  id: number
+  event: number
+  location: number | null
+  note: string
+  file_url: string | null
+  mime_type: string
+  /** 'img' for images, 'txt' for everything else (derived server-side). */
+  media_type: 'img' | 'txt'
+  /** When the media itself was created, e.g. a photo's capture time. */
+  timestamp: string | null
+  created_at: string
+}
+
 export interface EventInput {
   title: string
   description: string
@@ -147,4 +166,49 @@ export function updateEventLocation(
 /** Remove a location from an event (deletes the through row, not the location). */
 export function unlinkLocation(id: number): Promise<void> {
   return apiFetch<void>(`/event-locations/${id}/`, { method: 'DELETE' })
+}
+
+// --- Media ----------------------------------------------------------------
+
+/** Fields a client may set when creating media. `file` is the raw upload. */
+export interface MediaInput {
+  event: number
+  file: File
+  location?: number | null
+  note?: string
+  /** ISO string, or null when unknown. */
+  timestamp?: string | null
+}
+
+/** Fields editable after upload — the file itself is immutable here. */
+export interface MediaUpdate {
+  note?: string
+  location?: number | null
+  timestamp?: string | null
+}
+
+/** All media on a single event, newest first (the API's default ordering). */
+export function listEventMedia(eventId: number): Promise<Media[]> {
+  return fetchAll<Media>(`/media/?event=${eventId}`)
+}
+
+export function createMedia(input: MediaInput): Promise<Media> {
+  // Multipart: the file rides alongside the scalar fields. apiFetch leaves the
+  // Content-Type unset for FormData so the browser sets the boundary.
+  const form = new FormData()
+  form.append('event', String(input.event))
+  form.append('file', input.file)
+  if (input.location != null) form.append('location', String(input.location))
+  if (input.note) form.append('note', input.note)
+  if (input.timestamp) form.append('timestamp', input.timestamp)
+  return apiFetch<Media>('/media/', { method: 'POST', body: form })
+}
+
+/** Patch the editable fields of an existing media row (note/location/timestamp). */
+export function updateMedia(id: number, input: MediaUpdate): Promise<Media> {
+  return apiFetch<Media>(`/media/${id}/`, { method: 'PATCH', body: input })
+}
+
+export function deleteMedia(id: number): Promise<void> {
+  return apiFetch<void>(`/media/${id}/`, { method: 'DELETE' })
 }

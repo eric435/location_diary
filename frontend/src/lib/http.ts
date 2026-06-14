@@ -86,7 +86,11 @@ export async function apiFetch<T = unknown>(
   const method = (options.method ?? 'GET').toUpperCase()
   const headers: Record<string, string> = {}
 
-  if (options.body !== undefined) headers['Content-Type'] = 'application/json'
+  // FormData (file uploads) must be sent as multipart with a browser-generated
+  // boundary, so we leave Content-Type unset and pass the body through as-is.
+  // Everything else is JSON.
+  const isFormData = options.body instanceof FormData
+  if (options.body !== undefined && !isFormData) headers['Content-Type'] = 'application/json'
 
   if (UNSAFE_METHODS.has(method)) {
     await ensureCsrf()
@@ -94,11 +98,16 @@ export async function apiFetch<T = unknown>(
     if (token) headers['X-CSRFToken'] = token
   }
 
+  let body: BodyInit | undefined
+  if (options.body !== undefined) {
+    body = isFormData ? (options.body as FormData) : JSON.stringify(options.body)
+  }
+
   const response = await fetch(`${API_BASE}${path}`, {
     method,
     credentials: 'include',
     headers,
-    body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+    body,
   })
 
   if (response.status === 204) return undefined as T

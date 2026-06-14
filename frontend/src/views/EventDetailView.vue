@@ -13,15 +13,20 @@ import EventFormDialog from '@/components/events/EventFormDialog.vue'
 import AddLocationDialog from '@/components/locations/AddLocationDialog.vue'
 import EditLocationDialog from '@/components/locations/EditLocationDialog.vue'
 import LocationMap, { type MapPoint } from '@/components/locations/LocationMap.vue'
+import AddMediaDialog from '@/components/media/AddMediaDialog.vue'
+import EditMediaDialog from '@/components/media/EditMediaDialog.vue'
 import { useEventsStore } from '@/stores/events'
 import { formatDate, formatDateTime } from '@/lib/format'
 import { ApiError } from '@/lib/http'
 import {
   getEvent,
   listEventLocations,
+  listEventMedia,
   unlinkLocation,
+  deleteMedia,
   type DiaryEvent,
   type EventLocation,
+  type Media,
 } from '@/lib/diary'
 
 const route = useRoute()
@@ -34,11 +39,17 @@ const eventId = computed(() => Number(route.params.id))
 
 const event = ref<DiaryEvent | null>(null)
 const links = ref<EventLocation[]>([])
+const media = ref<Media[]>([])
 const loading = ref(true)
 const notFound = ref(false)
 
 const editVisible = ref(false)
 const addVisible = ref(false)
+
+// Media dialogs: add, and edit (the row currently open).
+const addMediaVisible = ref(false)
+const editMediaVisible = ref(false)
+const editingMedia = ref<Media | null>(null)
 
 // The link currently open in the edit-times dialog.
 const editLinkVisible = ref(false)
@@ -84,12 +95,14 @@ async function load() {
   try {
     // Prefer the cached event, but always confirm against the server so a
     // deep-link / refresh works without the dashboard having loaded.
-    const [fetchedEvent, fetchedLinks] = await Promise.all([
+    const [fetchedEvent, fetchedLinks, fetchedMedia] = await Promise.all([
       events.getById(eventId.value) ?? getEvent(eventId.value),
       listEventLocations(eventId.value),
+      listEventMedia(eventId.value),
     ])
     event.value = fetchedEvent
     links.value = fetchedLinks
+    media.value = fetchedMedia
     sortLinks()
   } catch (e) {
     if (e instanceof ApiError && e.status === 404) notFound.value = true
@@ -171,6 +184,50 @@ function confirmRemoveLocation(link: EventLocation) {
       } catch (e) {
         const detail = e instanceof ApiError ? e.message : 'Could not remove the location.'
         toast.add({ severity: 'error', summary: 'Remove failed', detail, life: 4000 })
+      }
+    },
+  })
+}
+
+// --- Media ----------------------------------------------------------------
+
+// The location name a media row is tied to, or '' when it isn't.
+function mediaLocationName(m: Media): string {
+  if (m.location === null) return ''
+  const link = links.value.find((l) => l.location === m.location)
+  return link?.location_detail.title || 'Untitled location'
+}
+
+function onMediaAdded(m: Media) {
+  // The API returns newest-first; mirror that by prepending.
+  media.value.unshift(m)
+}
+
+function openEditMedia(m: Media) {
+  editingMedia.value = m
+  editMediaVisible.value = true
+}
+
+function onMediaUpdated(updated: Media) {
+  const i = media.value.findIndex((m) => m.id === updated.id)
+  if (i !== -1) media.value[i] = updated
+}
+
+function confirmDeleteMedia(m: Media) {
+  confirm.require({
+    header: 'Delete media',
+    message: "Delete this media? This can't be undone.",
+    icon: 'pi pi-exclamation-triangle',
+    rejectProps: { label: 'Cancel', severity: 'secondary', text: true },
+    acceptProps: { label: 'Delete', severity: 'danger' },
+    accept: async () => {
+      try {
+        await deleteMedia(m.id)
+        media.value = media.value.filter((x) => x.id !== m.id)
+        toast.add({ severity: 'success', summary: 'Media deleted', life: 2500 })
+      } catch (e) {
+        const detail = e instanceof ApiError ? e.message : 'Could not delete the media.'
+        toast.add({ severity: 'error', summary: 'Delete failed', detail, life: 4000 })
       }
     },
   })
@@ -296,6 +353,72 @@ function confirmRemoveLocation(link: EventLocation) {
           </ul>
         </section>
 
+        <section class="detail-media">
+          <div class="detail-media__head">
+            <h2>Media</h2>
+            <Button
+              label="Add media"
+              icon="pi pi-plus"
+              size="small"
+              @click="addMediaVisible = true"
+            />
+          </div>
+
+          <p v-if="media.length === 0" class="detail-media__empty">
+            No media on this event yet. Upload photos or notes.
+          </p>
+
+          <ul v-else class="media-list">
+            <li v-for="m in media" :key="m.id" class="media-item">
+              <a
+                v-if="m.media_type === 'img' && m.file_url"
+                :href="m.file_url"
+                target="_blank"
+                rel="noopener"
+                class="media-item__thumb"
+              >
+                <img :src="m.file_url" :alt="m.note || 'Media image'" />
+              </a>
+              <a
+                v-else-if="m.file_url"
+                :href="m.file_url"
+                target="_blank"
+                rel="noopener"
+                class="media-item__file"
+              >
+                <i class="pi pi-file" />
+              </a>
+
+              <div class="media-item__body">
+                <p v-if="m.note" class="media-item__note">{{ m.note }}</p>
+                <p v-else class="media-item__note media-item__note--muted">No note</p>
+                <p class="media-item__meta">
+                  <span>{{ m.mime_type || 'unknown type' }}</span>
+                  <span v-if="m.timestamp">· Captured {{ formatDateTime(m.timestamp) }}</span>
+                  <span v-if="mediaLocationName(m)">· {{ mediaLocationName(m) }}</span>
+                </p>
+              </div>
+
+              <Button
+                icon="pi pi-pencil"
+                severity="secondary"
+                text
+                rounded
+                aria-label="Edit media"
+                @click="openEditMedia(m)"
+              />
+              <Button
+                icon="pi pi-trash"
+                severity="danger"
+                text
+                rounded
+                aria-label="Delete media"
+                @click="confirmDeleteMedia(m)"
+              />
+            </li>
+          </ul>
+        </section>
+
         <EventFormDialog v-model:visible="editVisible" :event="event" @saved="onEventSaved" />
         <AddLocationDialog
           v-model:visible="addVisible"
@@ -307,6 +430,18 @@ function confirmRemoveLocation(link: EventLocation) {
           v-model:visible="editLinkVisible"
           :link="editingLink"
           @saved="onLocationUpdated"
+        />
+        <AddMediaDialog
+          v-model:visible="addMediaVisible"
+          :event-id="event.id"
+          :links="links"
+          @added="onMediaAdded"
+        />
+        <EditMediaDialog
+          v-model:visible="editMediaVisible"
+          :media="editingMedia"
+          :links="links"
+          @saved="onMediaUpdated"
         />
       </template>
     </main>
@@ -490,5 +625,91 @@ function confirmRemoveLocation(link: EventLocation) {
   .loc-item__times {
     display: none;
   }
+}
+
+.detail-media {
+  margin-top: 2.5rem;
+}
+
+.detail-media__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.detail-media__head h2 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.detail-media__empty {
+  padding: 2rem 1.5rem;
+  text-align: center;
+  border: 1px dashed var(--p-content-border-color, #e5e7eb);
+  border-radius: 0.75rem;
+  color: var(--p-text-muted-color, #6b7280);
+}
+
+.media-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.media-item {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--p-content-border-color, #e5e7eb);
+  border-radius: 0.75rem;
+}
+
+.media-item__thumb,
+.media-item__file {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 3.5rem;
+  height: 3.5rem;
+  flex-shrink: 0;
+  border-radius: 0.5rem;
+  overflow: hidden;
+  background: var(--p-content-border-color, #f3f4f6);
+  color: var(--p-text-muted-color, #6b7280);
+}
+
+.media-item__thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.media-item__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.media-item__note {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.media-item__note--muted {
+  color: var(--p-text-muted-color, #6b7280);
+  font-style: italic;
+}
+
+.media-item__meta {
+  margin: 0.25rem 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+  color: var(--p-text-muted-color, #6b7280);
 }
 </style>
