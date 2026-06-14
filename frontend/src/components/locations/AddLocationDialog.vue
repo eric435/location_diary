@@ -10,6 +10,7 @@ import Dialog from 'primevue/dialog'
 import SelectButton from 'primevue/selectbutton'
 import Select from 'primevue/select'
 import InputText from 'primevue/inputtext'
+import InputNumber from 'primevue/inputnumber'
 import DatePicker from 'primevue/datepicker'
 import Button from 'primevue/button'
 import Message from 'primevue/message'
@@ -63,6 +64,22 @@ const departure = ref<Date | null>(null)
 
 const error = ref('')
 const submitting = ref(false)
+
+// Two-way bridge between the typed coordinate fields and `point`. Editing one
+// field keeps the other (defaulting a missing half to 0); the map watches
+// `point` and moves the pin to match.
+const lat = computed<number | null>({
+  get: () => point.value?.lat ?? null,
+  set: (v) => {
+    if (v != null) point.value = { lat: v, lng: point.value?.lng ?? 0 }
+  },
+})
+const lng = computed<number | null>({
+  get: () => point.value?.lng ?? null,
+  set: (v) => {
+    if (v != null) point.value = { lat: point.value?.lat ?? 0, lng: v }
+  },
+})
 
 const availableLocations = computed(() =>
   allLocations.value.filter((loc) => !props.linkedLocationIds.includes(loc.id)),
@@ -182,11 +199,37 @@ async function onSubmit() {
         <!-- Reuses `point` as the pin; click or drag to fine-tune the spot. -->
         <LocationMap v-model="point" class="loc-form__map" />
         <p class="loc-form__hint">
-          <template v-if="point">
-            {{ point.lat.toFixed(5) }}, {{ point.lng.toFixed(5) }}
-          </template>
-          <template v-else>Search above, or click the map to drop a pin.</template>
+          Search above, click the map to drop a pin, or type coordinates below.
         </p>
+
+        <div class="loc-coords">
+          <div class="field">
+            <label for="loc-lat">Latitude</label>
+            <InputNumber
+              input-id="loc-lat"
+              v-model="lat"
+              :min-fraction-digits="0"
+              :max-fraction-digits="7"
+              :min="-90"
+              :max="90"
+              placeholder="e.g. 48.8584"
+              fluid
+            />
+          </div>
+          <div class="field">
+            <label for="loc-lng">Longitude</label>
+            <InputNumber
+              input-id="loc-lng"
+              v-model="lng"
+              :min-fraction-digits="0"
+              :max-fraction-digits="7"
+              :min="-180"
+              :max="180"
+              placeholder="e.g. 2.2945"
+              fluid
+            />
+          </div>
+        </div>
 
         <div class="field">
           <label for="loc-title">Name</label>

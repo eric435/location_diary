@@ -40,13 +40,33 @@ const addVisible = ref(false)
 
 const linkedLocationIds = computed(() => links.value.map((l) => l.location))
 
-// The geocoded points for this event's locations, for the overview map.
+// The geocoded points for this event's locations, for the overview map. Each
+// point keeps its link id so a marker and its list row stay in sync.
 const mapPoints = computed<MapPoint[]>(() =>
   links.value
-    .map((l) => l.location_detail)
-    .filter((loc) => loc.lat !== null && loc.lng !== null)
-    .map((loc) => ({ lat: loc.lat!, lng: loc.lng!, title: loc.title || 'Untitled location' })),
+    .filter((l) => l.location_detail.lat !== null && l.location_detail.lng !== null)
+    .map((l) => ({
+      id: l.id,
+      lat: l.location_detail.lat!,
+      lng: l.location_detail.lng!,
+      title: l.location_detail.title || 'Untitled location',
+    })),
 )
+
+// Marker number (1-based) keyed by link id, matching the map's labels.
+const markerNumberById = computed(() => {
+  const numbers = new Map<number, number>()
+  mapPoints.value.forEach((p, i) => numbers.set(p.id as number, i + 1))
+  return numbers
+})
+
+// The link highlighted on the map; clicking a marker or a row toggles it.
+const selectedId = ref<number | null>(null)
+
+function toggleSelect(id: number) {
+  if (!markerNumberById.value.has(id)) return
+  selectedId.value = selectedId.value === id ? null : id
+}
 
 const createdLabel = computed(() =>
   event.value
@@ -200,8 +220,10 @@ function timeLabel(value: string | null): string {
           <LocationMap
             v-if="mapPoints.length"
             :points="mapPoints"
+            :selected-id="selectedId"
             readonly
             class="detail-locations__map"
+            @select="selectedId = $event as number"
           />
 
           <p v-if="links.length === 0" class="detail-locations__empty">
@@ -209,9 +231,21 @@ function timeLabel(value: string | null): string {
           </p>
 
           <ul v-else class="loc-list">
-            <li v-for="link in links" :key="link.id" class="loc-item">
+            <li
+              v-for="link in links"
+              :key="link.id"
+              class="loc-item"
+              :class="{
+                'loc-item--clickable': markerNumberById.has(link.id),
+                'loc-item--active': selectedId === link.id,
+              }"
+              @click="toggleSelect(link.id)"
+            >
               <div class="loc-item__main">
-                <i class="pi pi-map-marker loc-item__pin" />
+                <span v-if="markerNumberById.has(link.id)" class="loc-item__num">
+                  {{ markerNumberById.get(link.id) }}
+                </span>
+                <i v-else class="pi pi-map-marker loc-item__pin" />
                 <div>
                   <p class="loc-item__name">
                     {{ link.location_detail.title || 'Untitled location' }}
@@ -232,7 +266,7 @@ function timeLabel(value: string | null): string {
                 text
                 rounded
                 aria-label="Remove location"
-                @click="confirmRemoveLocation(link)"
+                @click.stop="confirmRemoveLocation(link)"
               />
             </li>
           </ul>
@@ -359,6 +393,36 @@ function timeLabel(value: string | null): string {
   padding: 0.85rem 1rem;
   border: 1px solid var(--p-content-border-color, #e5e7eb);
   border-radius: 0.75rem;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+}
+
+.loc-item--clickable {
+  cursor: pointer;
+}
+
+.loc-item--clickable:hover {
+  border-color: var(--p-primary-color, #6366f1);
+}
+
+.loc-item--active {
+  border-color: var(--p-primary-color, #6366f1);
+  background: var(--p-primary-50, #eef2ff);
+}
+
+.loc-item__num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--p-primary-color, #6366f1);
+  color: var(--p-primary-contrast-color, #fff);
+  font-size: 0.8rem;
+  font-weight: 600;
 }
 
 .loc-item__main {

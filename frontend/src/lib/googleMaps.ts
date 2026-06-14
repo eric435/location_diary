@@ -7,6 +7,11 @@
 // from VITE_GOOGLE_MAPS_API_KEY; restrict it by HTTP referrer in the Google
 // Cloud console since it ships to the browser.
 
+// Cloud Map ID, required by AdvancedMarkerElement. Not a secret — it ships to
+// the browser like the API key. Create one in the Google Cloud console under
+// Maps Platform → Map Management (JavaScript map type).
+export const MAP_ID: string | undefined = import.meta.env.VITE_GOOGLE_MAPS_MAP_ID || undefined
+
 let bootstrap: Promise<void> | null = null
 
 /** Inject the Maps `js` bootstrap script once; resolves when `google.maps` is ready. */

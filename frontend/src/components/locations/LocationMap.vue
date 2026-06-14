@@ -5,11 +5,11 @@
 //   - readonly: drops static markers for every `points` entry and fits them in
 //     view. Used to *see* an event's locations.
 //
-// Uses Google's classic Marker — it needs no cloud Map ID (so just the API key
-// is enough). It's deprecated in favour of AdvancedMarkerElement; switch when a
-// Map ID is configured.
+// Uses AdvancedMarkerElement, which needs a cloud Map ID
+// (VITE_GOOGLE_MAPS_MAP_ID). Readonly markers carry custom DOM so we can render
+// the numbered pin and its selected/bounce state as styled HTML.
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { loadMaps, loadMarker } from '@/lib/googleMaps'
+import { loadMaps, loadMarker, MAP_ID } from '@/lib/googleMaps'
 
 export interface Coords {
   lat: number
@@ -18,6 +18,8 @@ export interface Coords {
 
 export interface MapPoint extends Coords {
   title?: string
+  /** Stable id used to link a marker back to a list row (readonly mode). */
+  id?: number | string
 }
 
 const props = withDefaults(
@@ -29,18 +31,28 @@ const props = withDefaults(
     readonly?: boolean
     /** Zoom used when focusing a single point. */
     focusZoom?: number
+    /** Id of the highlighted marker (readonly mode); bounces and pans to it. */
+    selectedId?: number | string | null
   }>(),
-  { modelValue: null, points: () => [], readonly: false, focusZoom: 10 },
+  { modelValue: null, points: () => [], readonly: false, focusZoom: 10, selectedId: null },
 )
 
-const emit = defineEmits<{ 'update:modelValue': [value: Coords] }>()
+const emit = defineEmits<{
+  'update:modelValue': [value: Coords]
+  /** A static marker was clicked; carries its point's id. */
+  select: [id: number | string]
+}>()
 
 const host = ref<HTMLDivElement | null>(null)
 const error = ref('')
 
 let map: google.maps.Map | null = null
-let pin: google.maps.Marker | null = null
-const staticPins: google.maps.Marker[] = []
+let pin: google.maps.marker.AdvancedMarkerElement | null = null
+const staticPins: {
+  marker: google.maps.marker.AdvancedMarkerElement
+  el: HTMLElement
+  id?: number | string
+}[] = []
 
 // North america center
 const DEFAULT_CENTER: Coords = { lat: 40, lng: -100 }
@@ -59,6 +71,8 @@ onMounted(async () => {
       clickableIcons: !props.readonly,
       mapTypeControl: false,
       streetViewControl: false,
+      // AdvancedMarkerElement requires a Map ID; without it markers won't render.
+      mapId: MAP_ID,
     })
 
     if (props.readonly) {
@@ -75,8 +89,8 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
-  pin?.setMap(null)
-  staticPins.forEach((m) => m.setMap(null))
+  if (pin) pin.map = null
+  staticPins.forEach((s) => (s.marker.map = null))
 })
 
 /** Drop / move the single editable pin and emit the new coordinates. */
@@ -88,32 +102,74 @@ function setPoint(coords: Coords) {
 function placePin(coords: Coords) {
   if (!map) return
   if (!pin) {
-    pin = new google.maps.Marker({ map, position: coords, draggable: true })
+    pin = new google.maps.marker.AdvancedMarkerElement({
+      map,
+      position: coords,
+      gmpDraggable: true,
+    })
     pin.addListener('dragend', () => {
-      const p = pin?.getPosition()
-      if (p) emit('update:modelValue', { lat: p.lat(), lng: p.lng() })
+      // After a drag `position` is a LatLng; normalise both it and literals.
+      const p = pin?.position
+      if (p) {
+        const ll = new google.maps.LatLng(p)
+        emit('update:modelValue', { lat: ll.lat(), lng: ll.lng() })
+      }
     })
   } else {
-    pin.setPosition(coords)
+    pin.position = coords
   }
+}
+
+/** Build the numbered pin element for a readonly marker. */
+function makePinEl(label: string): HTMLElement {
+  const el = document.createElement('div')
+  el.className = 'loc-map-pin'
+  el.textContent = label
+  return el
 }
 
 function renderStaticPins() {
   if (!map) return
-  staticPins.forEach((m) => m.setMap(null))
+  staticPins.forEach((s) => (s.marker.map = null))
   staticPins.length = 0
   if (!props.points.length) return
 
   const bounds = new google.maps.LatLngBounds()
-  for (const point of props.points) {
-    staticPins.push(new google.maps.Marker({ map, position: point, title: point.title }))
+  props.points.forEach((point, i) => {
+    // Number each pin so it maps 1:1 onto the list row beside it.
+    const el = makePinEl(String(i + 1))
+    const marker = new google.maps.marker.AdvancedMarkerElement({
+      map: map!,
+      position: point,
+      title: point.title,
+      content: el,
+      gmpClickable: point.id !== undefined,
+    })
+    if (point.id !== undefined) {
+      const id = point.id
+      marker.addListener('click', () => emit('select', id))
+    }
+    staticPins.push({ marker, el, id: point.id })
     bounds.extend(point)
-  }
+  })
   if (props.points.length === 1) {
     map.setCenter(props.points[0]!)
     map.setZoom(props.focusZoom)
   } else {
     map.fitBounds(bounds, 48)
+  }
+  applySelection()
+}
+
+// Highlight the selected marker (bounce + raise + recolour, via CSS) and pan to
+// it so the chosen row stands out.
+function applySelection() {
+  if (!map) return
+  for (const s of staticPins) {
+    const selected = props.selectedId != null && s.id === props.selectedId
+    s.el.classList.toggle('loc-map-pin--active', selected)
+    s.marker.zIndex = selected ? 1000 : undefined
+    if (selected && s.marker.position) map.panTo(s.marker.position)
   }
 }
 
@@ -129,6 +185,8 @@ watch(
 )
 
 watch(() => props.points, renderStaticPins, { deep: true })
+
+watch(() => props.selectedId, applySelection)
 </script>
 
 <template>
@@ -166,5 +224,41 @@ watch(() => props.points, renderStaticPins, { deep: true })
   background: var(--p-content-background, #f9fafb);
   border: 1px dashed var(--p-content-border-color, #e5e7eb);
   border-radius: 0.75rem;
+}
+</style>
+
+<!-- Marker DOM is created imperatively (document.createElement), so it can't
+     carry scoped data-v attributes — these rules must be global. -->
+<style>
+.loc-map-pin {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 50%;
+  background: var(--p-primary-color, #6366f1);
+  color: var(--p-primary-contrast-color, #fff);
+  border: 2px solid #fff;
+  font: 600 0.8rem/1 system-ui, sans-serif;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    transform 0.15s;
+}
+
+.loc-map-pin--active {
+  background: #ef4444;
+  animation: loc-map-pin-bounce 0.6s ease-in-out infinite alternate;
+}
+
+@keyframes loc-map-pin-bounce {
+  from {
+    transform: translateY(0) scale(1.15);
+  }
+  to {
+    transform: translateY(-7px) scale(1.15);
+  }
 }
 </style>
