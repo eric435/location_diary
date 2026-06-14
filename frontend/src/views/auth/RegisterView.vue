@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onBeforeUnmount, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import InputText from 'primevue/inputtext'
 import Password from 'primevue/password'
@@ -14,6 +14,8 @@ const router = useRouter()
 
 const email = ref('')
 const password = ref('')
+const emailErrors = ref<string[]>([])
+const passwordErrors = ref<string[]>([])
 const errors = ref<string[]>([])
 const submitting = ref(false)
 
@@ -37,6 +39,31 @@ async function onSubmit() {
     submitting.value = false
   }
 }
+
+async function validate() {
+  try {
+    const validationErrors = await auth.validate(email.value, password.value)
+    emailErrors.value = validationErrors.email ?? []
+    passwordErrors.value = validationErrors.password ?? []
+  } catch (e) {
+    console.error(e)
+    errors.value = ['Something went wrong. Please try again.']
+  }
+}
+
+async function clearEmailErrors() {
+  emailErrors.value = []
+}
+
+let passwordDebounce: ReturnType<typeof setTimeout> | undefined
+
+function onPasswordInput() {
+  passwordErrors.value = []
+  clearTimeout(passwordDebounce)
+  passwordDebounce = setTimeout(validate, 1050)
+}
+
+onBeforeUnmount(() => clearTimeout(passwordDebounce))
 </script>
 
 <template>
@@ -52,7 +79,19 @@ async function onSubmit() {
 
       <div class="field">
         <label for="email">Email</label>
-        <InputText id="email" v-model="email" type="email" autocomplete="email" required fluid />
+        <InputText
+          id="email"
+          v-model="email"
+          type="email"
+          autocomplete="email"
+          required
+          fluid
+          @focus="clearEmailErrors"
+          @blur="validate"
+        />
+        <small v-for="message in emailErrors" :key="message" class="field-error">
+          {{ message }}
+        </small>
       </div>
 
       <div class="field">
@@ -61,10 +100,15 @@ async function onSubmit() {
           input-id="password"
           v-model="password"
           toggle-mask
+          :feedback="false"
           autocomplete="new-password"
           required
           fluid
+          @input="onPasswordInput"
         />
+        <small v-for="message in passwordErrors" :key="message" class="field-error">
+          {{ message }}
+        </small>
       </div>
 
       <Button type="submit" label="Create account" :loading="submitting" fluid />
@@ -90,6 +134,11 @@ async function onSubmit() {
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
+}
+
+.field-error {
+  color: var(--p-red-500, #ef4444);
+  font-size: 0.8rem;
 }
 
 .auth-switch {

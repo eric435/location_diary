@@ -11,6 +11,12 @@ export interface User {
   date_joined: string
 }
 
+export type ValidationResponse = {
+  valid: boolean
+  email?: string[]
+  password?: string[]
+}
+
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<User | null>(null)
   // True once the initial session check has completed, so the router doesn't
@@ -38,6 +44,22 @@ export const useAuthStore = defineStore('auth', () => {
     })
   }
 
+  /** Check for signup validation errors without creating an account.
+   * Can call with partial data (just username or password).*/
+  async function validate(email?: string, password?: string): Promise<ValidationResponse> {
+    const validation = await apiFetch<ValidationResponse>('/auth/validate/', {
+      method: 'POST',
+      body: { email, password },
+    })
+    // Only surface errors for fields the user has actually filled in, so we
+    // don't flag a blank password before they've typed one.
+    return {
+      valid: validation.valid,
+      email: email ? validation.email : undefined,
+      password: password ? validation.password : undefined,
+    }
+  }
+
   async function register(email: string, password: string): Promise<void> {
     // Backend auto-logs-in on register, so this also establishes the session.
     user.value = await apiFetch<User>('/auth/register/', {
@@ -54,5 +76,5 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  return { user, ready, isAuthenticated, initialize, login, register, logout }
+  return { user, ready, isAuthenticated, initialize, login, validate, register, logout }
 })
