@@ -1,4 +1,5 @@
 from django.db import models
+from django.contrib.gis.db.models import PointField
 from apps.events.models import Event
 from apps.location.models import Location
 
@@ -23,6 +24,8 @@ class Media(models.Model):
     media_type = models.CharField(max_length=3, choices=MediaType)
     # Timestamp stores the moment of the media creation (e.g. when was photo taken)
     timestamp = models.DateTimeField(null=True, blank=True)
+    # Store lat/lng based on EXIF data
+    point = PointField(geography=True, srid=4326, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

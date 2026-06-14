@@ -146,3 +146,70 @@ def test_list_filter_by_location(auth_client, event, location, media_storage):
 def test_bad_filter_value_is_a_400(auth_client, media_storage):
     resp = auth_client.get(f"{MEDIA_URL}?event=notanumber")
     assert resp.status_code == 400
+
+
+# --- geotagged point: read fields + ?near= filter ---------------------------
+
+
+def _make_geotagged(event, lng, lat, name="geo.png"):
+    """Create a Media row with an EXIF-derived point (set directly, as EXIF would)."""
+    from django.contrib.gis.geos import Point
+
+    return Media.objects.create(
+        event=event,
+        media_type="img",
+        mime_type="image/png",
+        point=Point(lng, lat, srid=4326),
+        file=SimpleUploadedFile(name, b"\x89PNG", content_type="image/png"),
+    )
+
+
+def test_point_exposed_as_lat_lng(auth_client, event, media_storage):
+    m = _make_geotagged(event, lng=-123.1, lat=49.2)
+
+    resp = auth_client.get(f"{MEDIA_URL}{m.id}/")
+
+    assert resp.status_code == 200
+    assert resp.data["lat"] == 49.2
+    assert resp.data["lng"] == -123.1
+
+
+def test_untagged_media_has_null_lat_lng(auth_client, event, media_storage):
+    m = _make_media(event)
+
+    resp = auth_client.get(f"{MEDIA_URL}{m.id}/")
+
+    assert resp.data["lat"] is None
+    assert resp.data["lng"] is None
+
+
+def test_point_is_read_only(auth_client, event, files, media_storage):
+    # A client-supplied point is ignored; point comes only from EXIF GPS.
+    resp = auth_client.post(
+        MEDIA_URL,
+        {"event": event.id, "file": files["png"], "point": "POINT(1 2)"},
+        format="multipart",
+    )
+    assert resp.status_code == 201
+    assert resp.data["lat"] is None
+    assert resp.data["lng"] is None
+
+
+def test_near_filter_returns_nearest_first(auth_client, event, media_storage):
+    # Vancouver-ish origin; near photo ~ a few km, far photo on another continent.
+    near = _make_geotagged(event, lng=-123.11, lat=49.28, name="near.png")
+    far = _make_geotagged(event, lng=2.35, lat=48.85, name="far.png")  # Paris
+    _make_media(event)  # untagged -> excluded by dwithin
+
+    resp = auth_client.get(f"{MEDIA_URL}?near=-123.12,49.27,50")
+
+    assert resp.status_code == 200
+    returned_ids = [row["id"] for row in resp.data["results"]]
+    assert returned_ids == [near.id]
+    assert far.id not in returned_ids
+
+
+def test_near_filter_bad_format_is_a_400(auth_client, media_storage):
+    resp = auth_client.get(f"{MEDIA_URL}?near=notcoords")
+    assert resp.status_code == 400
+    assert "near" in resp.data
