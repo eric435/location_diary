@@ -54,7 +54,7 @@ def test_eventlocation_links_event_and_location(event, location):
     link = EventLocation.objects.create(event=event, location=location)
     # The M2M is navigable from both ends via the through table.
     assert location in event.locations.all()
-    assert event in location.event.all()
+    assert event in location.events.all()
     assert link.arrival is None and link.departure is None
 
 
@@ -62,17 +62,17 @@ def test_location_reusable_across_events(event, other_event, location):
     # Same location can belong to multiple events (its whole point).
     EventLocation.objects.create(event=event, location=location)
     EventLocation.objects.create(event=other_event, location=location)
-    assert location.event.count() == 2
+    assert location.events.count() == 2
 
 
-# --- auth (TODO) ------------------------------------------------------------
+# --- auth ------------------------------------------------------------
 
 
 def test_unauthenticated_request_is_rejected(api_client, db):
     assert api_client.get(LOCATIONS_URL).status_code == 403
 
 
-# --- ownership scoping (TODO) -----------------------------------------------
+# --- ownership scoping -----------------------------------------------
 
 
 def test_list_returns_only_own_locations(auth_client, location, other_location):
@@ -90,7 +90,7 @@ def test_create_assigns_owner_from_request_user(auth_client, user):
     )
     assert resp.status_code == 201
     created = Location.objects.get(id=resp.data["id"])
-    assert created.user_id == user.id
+    assert created.user_id == user.id  # pyright: ignore
 
 
 def test_cannot_retrieve_another_users_location(auth_client, other_location):
@@ -98,7 +98,7 @@ def test_cannot_retrieve_another_users_location(auth_client, other_location):
     assert resp.status_code == 404
 
 
-# --- nearby search (TODO) ---------------------------------------------------
+# --- nearby search ---------------------------------------------------
 
 
 def test_near_query_filters_by_distance(auth_client, locations):

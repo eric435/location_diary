@@ -25,6 +25,9 @@ class Media(models.Model):
     timestamp = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
+    class Meta:
+        ordering = ["-created_at"]
+
     def __str__(self):
         label = self.MediaType(self.media_type).label
         if self.timestamp:

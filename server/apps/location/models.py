@@ -5,13 +5,16 @@ from apps.users.models import User
 
 class Location(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
-    event = models.ManyToManyField(
+    events = models.ManyToManyField(
         Event, through="EventLocation", related_name="locations"
     )
 
     title = models.CharField(max_length=255, blank=True)
     point = models.PointField(geography=True, srid=4326)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
 
     def __str__(self):
         return self.title
