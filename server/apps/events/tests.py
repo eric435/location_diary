@@ -10,7 +10,7 @@ from apps.events.models import Event
 EVENTS_URL = "/api/events/"
 
 
-# --- model (implemented) ----------------------------------------------------
+# --- model ----------------------------------------------------
 
 
 def test_str_is_title(event):
@@ -21,14 +21,14 @@ def test_created_at_is_set(event):
     assert event.created_at is not None
 
 
-# --- auth (TODO) ------------------------------------------------------------
+# --- auth ------------------------------------------------------------
 
 
 def test_unauthenticated_request_is_rejected(api_client, db):
     assert api_client.get(EVENTS_URL).status_code == 403
 
 
-# --- ownership scoping (TODO) -----------------------------------------------
+# --- ownership scoping -----------------------------------------------
 
 
 def test_list_returns_only_own_events(auth_client, event, other_event):
@@ -41,12 +41,10 @@ def test_list_returns_only_own_events(auth_client, event, other_event):
 def test_create_assigns_owner_from_request_user(auth_client, user, other_user):
     # Even if a different user is supplied in the body, ownership comes from the
     # authenticated request — a client can't create events for someone else.
-    resp = auth_client.post(
-        EVENTS_URL, {"title": "Solo Trip", "user": other_user.id}
-    )
+    resp = auth_client.post(EVENTS_URL, {"title": "Solo Trip", "user": other_user.id})
     assert resp.status_code == 201
     created = Event.objects.get(id=resp.data["id"])
-    assert created.user_id == user.id
+    assert created.user_id == user.id  # pyright: ignore[reportAttributeAccessIssue]
 
 
 def test_cannot_retrieve_another_users_event(auth_client, other_event):
@@ -55,9 +53,7 @@ def test_cannot_retrieve_another_users_event(auth_client, other_event):
 
 
 def test_cannot_update_another_users_event(auth_client, other_event):
-    resp = auth_client.patch(
-        f"{EVENTS_URL}{other_event.id}/", {"title": "Hijacked"}
-    )
+    resp = auth_client.patch(f"{EVENTS_URL}{other_event.id}/", {"title": "Hijacked"})
     assert resp.status_code == 404
 
 
