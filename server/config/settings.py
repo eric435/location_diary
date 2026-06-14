@@ -87,6 +87,7 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "django.contrib.gis",
+    "corsheaders",
     "rest_framework",
     "storages",
     "apps.users",
@@ -97,6 +98,9 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    # CorsMiddleware must sit as high as possible (and before CommonMiddleware)
+    # so it can attach CORS headers even on responses other middleware short-circuit.
+    "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -193,3 +197,39 @@ REST_FRAMEWORK = {
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 20,
 }
+
+# --- SPA frontend: CORS, CSRF, and session cookies --------------------------
+# The Vue app and this API are served same-site (e.g. app.example.com +
+# api.example.com), so session-cookie auth works with SameSite=Lax. We keep
+# every safety mechanism on — CSRF stays enforced, cookies are credentialed,
+# and origins are allow-listed (never "*") — they're just made to work across
+# the SPA's distinct origin.
+#
+# FRONTEND_ORIGINS is the allow-list of browser origins (scheme + host + port).
+# Default covers Vite's dev server; override via env in prod, e.g.
+#   FRONTEND_ORIGINS=https://app.example.com
+FRONTEND_ORIGINS = env.list(
+    "FRONTEND_ORIGINS",
+    default=["http://localhost:5173", "http://127.0.0.1:5173"],
+)
+
+# CORS: allow the SPA's origin to call the API *with credentials* (cookies).
+# Credentialed CORS forbids a wildcard origin, hence the explicit list.
+CORS_ALLOWED_ORIGINS = FRONTEND_ORIGINS
+CORS_ALLOW_CREDENTIALS = True
+
+# CSRF: Django must trust the SPA's origin as a source of unsafe requests.
+# (Separate from CORS — easy to forget. Needs the scheme on Django 4+.)
+CSRF_TRUSTED_ORIGINS = FRONTEND_ORIGINS
+
+# Cookies. SameSite=Lax is enough because the SPA and API are same-site; the
+# browser still sends the session/CSRF cookies on the SPA's cross-origin XHR.
+SESSION_COOKIE_SAMESITE = "Lax"
+CSRF_COOKIE_SAMESITE = "Lax"
+# The CSRF cookie must stay readable by JS so the SPA can echo it back in the
+# X-CSRFToken header. The *session* cookie remains HttpOnly (Django default).
+CSRF_COOKIE_HTTPONLY = False
+# Secure cookies require HTTPS — on in production, off for local http dev.
+# Defaults to the inverse of DEBUG; override with COOKIE_SECURE if needed.
+SESSION_COOKIE_SECURE = env.bool("COOKIE_SECURE", default=not DEBUG)
+CSRF_COOKIE_SECURE = env.bool("COOKIE_SECURE", default=not DEBUG)

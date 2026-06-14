@@ -5,12 +5,15 @@ API surface (register / login / logout / me).
 import pytest
 from django.contrib.auth import authenticate
 from django.db import IntegrityError
+from rest_framework.test import APIClient
 from apps.users.models import User
 
 REGISTER_URL = "/api/auth/register/"
 LOGIN_URL = "/api/auth/login/"
 LOGOUT_URL = "/api/auth/logout/"
 ME_URL = "/api/auth/me/"
+CSRF_URL = "/api/auth/csrf/"
+EVENTS_URL = "/api/events/"
 
 
 # --- model + manager ------------------------------------------
@@ -150,3 +153,47 @@ def test_logout_actually_clears_session(api_client, user):
     assert api_client.get(ME_URL).status_code == 200
     api_client.post(LOGOUT_URL)
     assert api_client.get(ME_URL).status_code == 403
+
+
+# --- CSRF bootstrap + enforcement -------------------------------------------
+
+
+def test_csrf_endpoint_is_public_and_sets_cookie(api_client, db):
+    resp = api_client.get(CSRF_URL)
+    assert resp.status_code == 204
+    # The whole point: the browser walks away holding a csrftoken cookie.
+    assert "csrftoken" in resp.cookies
+
+
+def test_csrf_is_enforced_for_session_writes(db, user):
+    # A CSRF-checking client (like a real browser) proves we did NOT disable the
+    # protection: an authenticated write with no token is blocked, and the same
+    # write succeeds once the token is echoed in the X-CSRFToken header.
+    client = APIClient(enforce_csrf_checks=True)
+    client.get(CSRF_URL)  # plant the cookie
+    # Login is pre-session, so it isn't itself CSRF-protected.
+    assert client.post(
+        LOGIN_URL, {"email": user.email, "password": "pw12345!"}
+    ).status_code == 200
+
+    token = client.cookies["csrftoken"].value
+    blocked = client.post(EVENTS_URL, {"title": "No token"})
+    assert blocked.status_code == 403
+
+    allowed = client.post(EVENTS_URL, {"title": "With token"}, HTTP_X_CSRFTOKEN=token)
+    assert allowed.status_code == 201
+
+
+# --- CORS allow-listing -----------------------------------------------------
+
+
+def test_cors_headers_returned_for_allowed_origin(api_client, db):
+    resp = api_client.get(ME_URL, HTTP_ORIGIN="http://localhost:5173")
+    assert resp.headers.get("Access-Control-Allow-Origin") == "http://localhost:5173"
+    # Credentialed CORS — required so the browser will send cookies.
+    assert resp.headers.get("Access-Control-Allow-Credentials") == "true"
+
+
+def test_cors_headers_absent_for_unlisted_origin(api_client, db):
+    resp = api_client.get(ME_URL, HTTP_ORIGIN="http://evil.example.com")
+    assert "Access-Control-Allow-Origin" not in resp.headers

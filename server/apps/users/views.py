@@ -1,9 +1,26 @@
 from django.contrib.auth import authenticate, login, logout
+from django.utils.decorators import method_decorator
+from django.views.decorators.csrf import ensure_csrf_cookie
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .serializers import UserSerializer
+
+
+@method_decorator(ensure_csrf_cookie, name="dispatch")
+class CsrfView(APIView):
+    """Public bootstrap: plant the csrftoken cookie before login.
+
+    The SPA calls this once on load so the browser holds a CSRF cookie it can
+    echo back in the X-CSRFToken header on subsequent unsafe requests. The body
+    is empty; only the Set-Cookie matters.
+    """
+
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class RegisterView(generics.CreateAPIView):
