@@ -24,12 +24,25 @@ export async function ensureCsrf(): Promise<void> {
   }
 }
 
+/**
+ * Shape of a DRF error body: a top-level `{"detail": "..."}` and/or per-field
+ * validation errors like `{"email": ["..."], "password": ["..."]}`. The index
+ * signature keeps arbitrary field names accessible while the explicit members
+ * give the common ones precise types.
+ */
+export interface ApiErrorData {
+  detail?: string
+  email?: string[]
+  password?: string[]
+  [field: string]: string[] | string | undefined
+}
+
 /** Thrown for any non-2xx response. `message` is a user-presentable string. */
 export class ApiError extends Error {
   status: number
-  data: unknown
+  data: ApiErrorData | null
 
-  constructor(status: number, data: unknown, message: string) {
+  constructor(status: number, data: ApiErrorData | null, message: string) {
     super(message)
     this.name = 'ApiError'
     this.status = status

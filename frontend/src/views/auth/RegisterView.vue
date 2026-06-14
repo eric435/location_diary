@@ -14,17 +14,25 @@ const router = useRouter()
 
 const email = ref('')
 const password = ref('')
-const error = ref('')
+const errors = ref<string[]>([])
 const submitting = ref(false)
 
 async function onSubmit() {
-  error.value = ''
+  errors.value = []
   submitting.value = true
   try {
     await auth.register(email.value, password.value)
     router.push({ name: 'home' })
   } catch (e) {
-    error.value = e instanceof ApiError ? e.message : 'Something went wrong. Please try again.'
+    if (e instanceof ApiError) {
+      console.log(e.data)
+      const emailErrors = e.data?.email ?? []
+      const passwordErrors = e.data?.password ?? []
+      const errorDetail: string[] = e.data?.detail ? [e.data.detail] : []
+      errors.value = [...emailErrors, ...passwordErrors, ...errorDetail]
+    } else {
+      errors.value = ['Something went wrong. Please try again.']
+    }
   } finally {
     submitting.value = false
   }
@@ -34,18 +42,17 @@ async function onSubmit() {
 <template>
   <AuthCard title="Create account" subtitle="Start your Location Diary">
     <form class="auth-form" @submit.prevent="onSubmit">
-      <Message v-if="error" severity="error" :closable="false">{{ error }}</Message>
+      <Message v-if="errors.length" severity="error" :closable="false">
+        <ul>
+          <li v-for="message in errors" :key="message">
+            {{ message }}
+          </li>
+        </ul>
+      </Message>
 
       <div class="field">
         <label for="email">Email</label>
-        <InputText
-          id="email"
-          v-model="email"
-          type="email"
-          autocomplete="email"
-          required
-          fluid
-        />
+        <InputText id="email" v-model="email" type="email" autocomplete="email" required fluid />
       </div>
 
       <div class="field">
