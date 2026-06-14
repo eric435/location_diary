@@ -1,17 +1,17 @@
 <script setup lang="ts">
-import Button from 'primevue/button'
-
-const simplealert = () => alert('Button was clicked!')
+import { RouterView } from 'vue-router'
 </script>
 
 <template>
-  <h1>You did it!</h1>
-
-  <Button v-on:click="simplealert">Click me for fun</Button>
-  <p>
-    Visit <a href="https://vuejs.org/" target="_blank" rel="noopener">vuejs.org</a> to read the
-    documentation
-  </p>
+  <RouterView />
 </template>
 
-<style scoped></style>
+<style>
+:root {
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+body {
+  margin: 0;
+}
+</style>
