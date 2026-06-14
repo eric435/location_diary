@@ -38,14 +38,7 @@ async function onSubmit() {
 
       <div class="field">
         <label for="email">Email</label>
-        <InputText
-          id="email"
-          v-model="email"
-          type="email"
-          autocomplete="email"
-          required
-          fluid
-        />
+        <InputText id="email" v-model="email" type="email" autocomplete="email" required fluid />
       </div>
 
       <div class="field">

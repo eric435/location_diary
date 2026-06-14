@@ -23,6 +23,12 @@ const router = createRouter({
       component: () => import('@/views/HomeView.vue'),
       meta: { requiresAuth: true },
     },
+    {
+      path: '/events/:id',
+      name: 'event-detail',
+      component: () => import('@/views/EventDetailView.vue'),
+      meta: { requiresAuth: true },
+    },
   ],
 })
 

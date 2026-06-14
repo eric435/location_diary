@@ -1,6 +1,8 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import PrimeVue from 'primevue/config'
+import ConfirmationService from 'primevue/confirmationservice'
+import ToastService from 'primevue/toastservice'
 import Aura from '@primeuix/themes/aura'
 
 import App from './App.vue'
@@ -16,6 +18,8 @@ app.use(PrimeVue, {
     preset: Aura,
   },
 })
+app.use(ToastService)
+app.use(ConfirmationService)
 
 // Restore any existing session (and plant the CSRF cookie) before the router
 // runs its guards, so we don't flash the login page for already-authenticated
