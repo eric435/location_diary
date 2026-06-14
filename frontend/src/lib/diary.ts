@@ -117,6 +117,15 @@ export function createLocation(input: LocationInput): Promise<DiaryLocation> {
   return apiFetch<DiaryLocation>('/locations/', { method: 'POST', body: input })
 }
 
+/** Update a location's name/position. Note: locations are shared, so this
+ * affects every event the location is linked to. */
+export function updateLocation(
+  id: number,
+  input: Partial<LocationInput>,
+): Promise<DiaryLocation> {
+  return apiFetch<DiaryLocation>(`/locations/${id}/`, { method: 'PATCH', body: input })
+}
+
 // --- Event <-> location links --------------------------------------------
 
 /** The locations attached to a single event, with arrival/departure times. */

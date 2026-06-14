@@ -11,6 +11,7 @@ import { useToast } from 'primevue/usetoast'
 import AppHeader from '@/components/AppHeader.vue'
 import EventFormDialog from '@/components/events/EventFormDialog.vue'
 import AddLocationDialog from '@/components/locations/AddLocationDialog.vue'
+import EditLocationDialog from '@/components/locations/EditLocationDialog.vue'
 import LocationMap, { type MapPoint } from '@/components/locations/LocationMap.vue'
 import { useEventsStore } from '@/stores/events'
 import { ApiError } from '@/lib/http'
@@ -37,6 +38,10 @@ const notFound = ref(false)
 
 const editVisible = ref(false)
 const addVisible = ref(false)
+
+// The link currently open in the edit-times dialog.
+const editLinkVisible = ref(false)
+const editingLink = ref<EventLocation | null>(null)
 
 const linkedLocationIds = computed(() => links.value.map((l) => l.location))
 
@@ -92,6 +97,7 @@ async function load() {
     ])
     event.value = fetchedEvent
     links.value = fetchedLinks
+    sortLinks()
   } catch (e) {
     if (e instanceof ApiError && e.status === 404) notFound.value = true
     else toast.add({ severity: 'error', summary: 'Could not load event', life: 4000 })
@@ -126,8 +132,34 @@ function confirmDeleteEvent() {
   })
 }
 
+// Keep the list in the server's order: arrival ascending with nulls last, then
+// id. Re-applied whenever links change so adds land in the right spot.
+function sortLinks() {
+  links.value.sort((a, b) => {
+    if (a.arrival !== b.arrival) {
+      if (a.arrival === null) return 1
+      if (b.arrival === null) return -1
+      return new Date(a.arrival).getTime() - new Date(b.arrival).getTime()
+    }
+    return a.id - b.id
+  })
+}
+
 function onLocationAdded(link: EventLocation) {
   links.value.push(link)
+  sortLinks()
+}
+
+function openEdit(link: EventLocation) {
+  editingLink.value = link
+  editLinkVisible.value = true
+}
+
+// Replace the edited link in place; arrival may have changed, so re-sort.
+function onLocationUpdated(updated: EventLocation) {
+  const i = links.value.findIndex((l) => l.id === updated.id)
+  if (i !== -1) links.value[i] = updated
+  sortLinks()
 }
 
 function confirmRemoveLocation(link: EventLocation) {
@@ -261,6 +293,14 @@ function timeLabel(value: string | null): string {
                 <span>Departure: {{ timeLabel(link.departure) }}</span>
               </div>
               <Button
+                icon="pi pi-pencil"
+                severity="secondary"
+                text
+                rounded
+                aria-label="Edit location times"
+                @click.stop="openEdit(link)"
+              />
+              <Button
                 icon="pi pi-times"
                 severity="danger"
                 text
@@ -278,6 +318,11 @@ function timeLabel(value: string | null): string {
           :event-id="event.id"
           :linked-location-ids="linkedLocationIds"
           @added="onLocationAdded"
+        />
+        <EditLocationDialog
+          v-model:visible="editLinkVisible"
+          :link="editingLink"
+          @saved="onLocationUpdated"
         />
       </template>
     </main>

@@ -9,16 +9,12 @@ import { computed, ref, watch } from 'vue'
 import Dialog from 'primevue/dialog'
 import SelectButton from 'primevue/selectbutton'
 import Select from 'primevue/select'
-import InputText from 'primevue/inputtext'
-import InputNumber from 'primevue/inputnumber'
 import DatePicker from 'primevue/datepicker'
 import Button from 'primevue/button'
 import Message from 'primevue/message'
 import { useToast } from 'primevue/usetoast'
-import LocationMap, { type Coords } from '@/components/locations/LocationMap.vue'
-import PlacesAutocomplete, {
-  type PlaceSelection,
-} from '@/components/locations/PlacesAutocomplete.vue'
+import LocationFields from '@/components/locations/LocationFields.vue'
+import { type Coords } from '@/components/locations/LocationMap.vue'
 import {
   createLocation,
   linkLocation,
@@ -65,28 +61,12 @@ const departure = ref<Date | null>(null)
 const error = ref('')
 const submitting = ref(false)
 
-// Two-way bridge between the typed coordinate fields and `point`. Editing one
-// field keeps the other (defaulting a missing half to 0); the map watches
-// `point` and moves the pin to match.
-const lat = computed<number | null>({
-  get: () => point.value?.lat ?? null,
-  set: (v) => {
-    if (v != null) point.value = { lat: v, lng: point.value?.lng ?? 0 }
-  },
-})
-const lng = computed<number | null>({
-  get: () => point.value?.lng ?? null,
-  set: (v) => {
-    if (v != null) point.value = { lat: point.value?.lat ?? 0, lng: v }
-  },
-})
-
 const availableLocations = computed(() =>
   allLocations.value.filter((loc) => !props.linkedLocationIds.includes(loc.id)),
 )
 
 const canSubmit = computed(() => {
-  if (mode.value === 'new') return title.value.trim() !== '' && point.value !== null
+  if (mode.value === 'new') return point.value !== null
   return selectedLocation.value !== null
 })
 
@@ -113,13 +93,6 @@ watch(
     }
   },
 )
-
-// Picking a place from search fills both the point and a default name (still
-// editable). Clicking/dragging on the map only moves the point.
-function onPlaceSelected(place: PlaceSelection) {
-  point.value = { lat: place.lat, lng: place.lng }
-  title.value = place.title
-}
 
 function close() {
   emit('update:visible', false)
@@ -188,59 +161,7 @@ async function onSubmit() {
       />
 
       <template v-if="mode === 'new'">
-        <div class="field">
-          <label>Search</label>
-          <PlacesAutocomplete
-            placeholder="e.g. Café Toulouse, Paris"
-            @select="onPlaceSelected"
-          />
-        </div>
-
-        <!-- Reuses `point` as the pin; click or drag to fine-tune the spot. -->
-        <LocationMap v-model="point" class="loc-form__map" />
-        <p class="loc-form__hint">
-          Search above, click the map to drop a pin, or type coordinates below.
-        </p>
-
-        <div class="loc-coords">
-          <div class="field">
-            <label for="loc-lat">Latitude</label>
-            <InputNumber
-              input-id="loc-lat"
-              v-model="lat"
-              :min-fraction-digits="0"
-              :max-fraction-digits="7"
-              :min="-90"
-              :max="90"
-              placeholder="e.g. 48.8584"
-              fluid
-            />
-          </div>
-          <div class="field">
-            <label for="loc-lng">Longitude</label>
-            <InputNumber
-              input-id="loc-lng"
-              v-model="lng"
-              :min-fraction-digits="0"
-              :max-fraction-digits="7"
-              :min="-180"
-              :max="180"
-              placeholder="e.g. 2.2945"
-              fluid
-            />
-          </div>
-        </div>
-
-        <div class="field">
-          <label for="loc-title">Name</label>
-          <InputText
-            id="loc-title"
-            v-model="title"
-            placeholder="e.g. Eiffel Tower"
-            required
-            fluid
-          />
-        </div>
+        <LocationFields v-model:title="title" v-model:point="point" />
       </template>
 
       <template v-else>
@@ -309,16 +230,6 @@ async function onSubmit() {
   flex-direction: column;
   gap: 0.35rem;
   flex: 1;
-}
-
-.loc-form__map {
-  height: 18rem;
-}
-
-.loc-form__hint {
-  margin: -0.5rem 0 0;
-  font-size: 0.8rem;
-  color: var(--p-text-muted-color, #6b7280);
 }
 
 .loc-coords {
