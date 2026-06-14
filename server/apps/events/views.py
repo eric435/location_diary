@@ -1,3 +1,4 @@
+from apps.common.params import int_param
 from apps.events.models import Event
 from rest_framework import permissions, viewsets
 
@@ -19,4 +20,9 @@ class EventViewSet(viewsets.ModelViewSet):
     # Primary defense: a user only ever sees/touches their own events.
     # A non-owner requesting another user's event gets a 404, not a 403.
     def get_queryset(self):
-        return Event.objects.filter(user=self.request.user).select_related("user")
+        qs = Event.objects.filter(user=self.request.user).select_related("user")
+        # Optional: ?location=<id> -> only events that include that location.
+        location_id = int_param(self.request, "location")
+        if location_id is not None:
+            qs = qs.filter(locations__id=location_id).distinct()
+        return qs

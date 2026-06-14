@@ -29,3 +29,9 @@ class EventLocation(models.Model):
 
     arrival = models.DateTimeField(null=True, blank=True)
     departure = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        # Arrival order makes a sensible default for rendering an event's stops;
+        # nulls last so undated links don't crowd the top. Also gives pagination
+        # a stable ordering.
+        ordering = [models.F("arrival").asc(nulls_last=True), "id"]

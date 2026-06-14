@@ -106,3 +106,43 @@ def test_cannot_attach_another_users_location(
 
     assert resp.status_code == 400
     assert "location" in resp.data
+
+
+# --- list filtering ---------------------------------------------------------
+
+
+def test_list_can_filter_by_event(auth_client, user, media_storage):
+    from apps.events.models import Event
+
+    e1 = Event.objects.create(user=user, title="One")
+    e2 = Event.objects.create(user=user, title="Two")
+    keep = _make_media(e1)
+    _make_media(e2)
+
+    resp = auth_client.get(f"{MEDIA_URL}?event={e1.id}")
+
+    assert resp.status_code == 200
+    returned_ids = [row["id"] for row in resp.data["results"]]
+    assert returned_ids == [keep.id]
+
+
+def test_list_filter_by_location(auth_client, event, location, media_storage):
+    on_location = Media.objects.create(
+        event=event,
+        location=location,
+        media_type="img",
+        mime_type="image/png",
+        file=SimpleUploadedFile("a.png", b"\x89PNG", content_type="image/png"),
+    )
+    _make_media(event)  # no location
+
+    resp = auth_client.get(f"{MEDIA_URL}?location={location.id}")
+
+    assert resp.status_code == 200
+    returned_ids = [row["id"] for row in resp.data["results"]]
+    assert returned_ids == [on_location.id]
+
+
+def test_bad_filter_value_is_a_400(auth_client, media_storage):
+    resp = auth_client.get(f"{MEDIA_URL}?event=notanumber")
+    assert resp.status_code == 400

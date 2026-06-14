@@ -68,3 +68,26 @@ def test_owner_can_update_event(auth_client, event):
     assert resp.status_code == 200
     event.refresh_from_db()
     assert event.title == "Renamed"
+
+
+# --- ?location= filter -----------------------------------------------
+
+
+def test_list_can_filter_events_by_location(auth_client, user, location):
+    from apps.events.models import Event
+    from apps.location.models import EventLocation
+
+    linked = Event.objects.create(user=user, title="Linked")
+    Event.objects.create(user=user, title="Unlinked")
+    EventLocation.objects.create(event=linked, location=location)
+
+    resp = auth_client.get(f"{EVENTS_URL}?location={location.id}")
+
+    assert resp.status_code == 200
+    titles = {row["title"] for row in resp.data["results"]}
+    assert titles == {"Linked"}
+
+
+def test_bad_filter_value_is_a_400(auth_client, db):
+    resp = auth_client.get(f"{EVENTS_URL}?location=notanumber")
+    assert resp.status_code == 400

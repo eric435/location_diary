@@ -1,3 +1,4 @@
+from apps.common.params import int_param
 from apps.media.models import Media
 from rest_framework import permissions, viewsets
 
@@ -22,6 +23,14 @@ class MediaViewSet(viewsets.ModelViewSet):
     # Primary defense: a user only ever sees/touches their own media.
     # A non-owner requesting another user's media gets a 404, not a 403.
     def get_queryset(self):
-        return Media.objects.filter(event__user=self.request.user).select_related(
+        qs = Media.objects.filter(event__user=self.request.user).select_related(
             "event", "location"
         )
+        # Optional filters so a client can scope to one event or location.
+        event_id = int_param(self.request, "event")
+        if event_id is not None:
+            qs = qs.filter(event_id=event_id)
+        location_id = int_param(self.request, "location")
+        if location_id is not None:
+            qs = qs.filter(location_id=location_id)
+        return qs
