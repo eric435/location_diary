@@ -1,35 +1,15 @@
-import pytest
+"""Media app: upload type-derivation, signed-url exposure, and ownership scoping.
+
+These already pass — Media is the reference implementation the other apps' API
+tests are written against. Shared fixtures live in the root conftest.py; the
+`media_storage` fixture swaps GCS for in-memory storage.
+"""
+
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import override_settings
-from rest_framework.test import APIClient
 
 from apps.media.models import Media
 
-# Swap GCS for in-memory storage so tests never touch the cloud. base_url lets
-# InMemoryStorage.url() return a value (otherwise .url raises and file_url 500s).
-IN_MEMORY = {
-    "default": {
-        "BACKEND": "django.core.files.storage.InMemoryStorage",
-        "OPTIONS": {"base_url": "http://testserver/media/"},
-    },
-    "staticfiles": {
-        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"
-    },
-}
-
 MEDIA_URL = "/api/media/"
-
-
-@pytest.fixture
-def files():
-    return {
-        "png": SimpleUploadedFile(
-            "photo.png", b"\x89PNG\r\n\x1a\n", content_type="image/png"
-        ),
-        "text": SimpleUploadedFile(
-            "note.txt", b"Example content", content_type="text/plain"
-        ),
-    }
 
 
 def _make_media(event, name="x.png", content_type="image/png", media_type="img"):
@@ -42,19 +22,19 @@ def _make_media(event, name="x.png", content_type="image/png", media_type="img")
     )
 
 
-# --- auth ---
+# --- auth -------------------------------------------------------------------
 
 
-def test_unauthenticated_request_is_rejected(db):
-    resp = APIClient().get(MEDIA_URL)
-    assert resp.status_code == 403
+def test_unauthenticated_request_is_rejected(api_client, db):
+    assert api_client.get(MEDIA_URL).status_code == 403
 
 
-# --- upload: type derivation + signed-url exposure ---
+# --- upload: type derivation + signed-url exposure --------------------------
 
 
-@override_settings(STORAGES=IN_MEMORY)
-def test_upload_image_derives_type_and_returns_signed_url(auth_client, event, files):
+def test_upload_image_derives_type_and_returns_signed_url(
+    auth_client, event, files, media_storage
+):
     resp = auth_client.post(
         MEDIA_URL, {"event": event.id, "file": files["png"]}, format="multipart"
     )
@@ -68,8 +48,7 @@ def test_upload_image_derives_type_and_returns_signed_url(auth_client, event, fi
     assert resp.data["file_url"]
 
 
-@override_settings(STORAGES=IN_MEMORY)
-def test_upload_text_derives_text_type(auth_client, event, files):
+def test_upload_text_derives_text_type(auth_client, event, files, media_storage):
     resp = auth_client.post(
         MEDIA_URL, {"event": event.id, "file": files["text"]}, format="multipart"
     )
@@ -79,11 +58,10 @@ def test_upload_text_derives_text_type(auth_client, event, files):
     assert resp.data["media_type"] == "txt"
 
 
-# --- ownership scoping (Layer 1) ---
+# --- ownership scoping (queryset) -------------------------------------------
 
 
-@override_settings(STORAGES=IN_MEMORY)
-def test_list_returns_only_own_media(auth_client, event, other_event):
+def test_list_returns_only_own_media(auth_client, event, other_event, media_storage):
     mine = _make_media(event)
     _make_media(other_event)  # belongs to other_user
 
@@ -94,8 +72,7 @@ def test_list_returns_only_own_media(auth_client, event, other_event):
     assert returned_ids == [mine.id]
 
 
-@override_settings(STORAGES=IN_MEMORY)
-def test_cannot_retrieve_another_users_media(auth_client, other_event):
+def test_cannot_retrieve_another_users_media(auth_client, other_event, media_storage):
     theirs = _make_media(other_event)
 
     resp = auth_client.get(f"{MEDIA_URL}{theirs.id}/")
@@ -104,11 +81,12 @@ def test_cannot_retrieve_another_users_media(auth_client, other_event):
     assert resp.status_code == 404
 
 
-# --- cross-ownership validation (serializer guards) ---
+# --- cross-ownership validation (serializer guards) -------------------------
 
 
-@override_settings(STORAGES=IN_MEMORY)
-def test_cannot_attach_media_to_another_users_event(auth_client, other_event, files):
+def test_cannot_attach_media_to_another_users_event(
+    auth_client, other_event, files, media_storage
+):
     resp = auth_client.post(
         MEDIA_URL, {"event": other_event.id, "file": files["png"]}, format="multipart"
     )
@@ -117,9 +95,8 @@ def test_cannot_attach_media_to_another_users_event(auth_client, other_event, fi
     assert "event" in resp.data
 
 
-@override_settings(STORAGES=IN_MEMORY)
 def test_cannot_attach_another_users_location(
-    auth_client, event, other_location, files
+    auth_client, event, other_location, files, media_storage
 ):
     resp = auth_client.post(
         MEDIA_URL,
