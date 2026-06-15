@@ -25,4 +25,15 @@ export default defineConfig({
       },
     },
   },
+  // `vite preview` doesn't inherit `server.proxy`, so mirror it here. This lets
+  // the headless e2e run (`npm run test:e2e`, which serves the built app via
+  // preview) reach the real Django backend same-origin, just like dev does.
+  preview: {
+    proxy: {
+      '/api': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
+    },
+  },
 })
