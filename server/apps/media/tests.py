@@ -148,6 +148,36 @@ def test_bad_filter_value_is_a_400(auth_client, media_storage):
     assert resp.status_code == 400
 
 
+# --- file cleanup on delete -------------------------------------------------
+
+
+def test_deleting_media_removes_file_from_storage(auth_client, event, media_storage):
+    from django.core.files.storage import default_storage
+
+    m = _make_media(event)
+    name = m.file.name
+    assert name and default_storage.exists(name)
+
+    resp = auth_client.delete(f"{MEDIA_URL}{m.pk}/")
+
+    assert resp.status_code == 204
+    assert not Media.objects.filter(pk=m.pk).exists()
+    assert not default_storage.exists(name)
+
+
+def test_cascade_delete_from_event_removes_file(event, media_storage):
+    from django.core.files.storage import default_storage
+
+    m = _make_media(event)
+    name = m.file.name
+    assert name and default_storage.exists(name)
+
+    event.delete()  # cascades to Media
+
+    assert not Media.objects.filter(pk=m.pk).exists()
+    assert not default_storage.exists(name)
+
+
 # --- geotagged point: read fields + ?near= filter ---------------------------
 
 
