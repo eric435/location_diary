@@ -2,7 +2,7 @@
 // A single event: its details (with edit/delete) and the locations attached to
 // it. Locations are managed here only in the event's context — added via
 // AddLocationDialog, removed by deleting the event-location link.
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
 import Button from 'primevue/button'
 import Paginator, { type PageState } from 'primevue/paginator'
@@ -23,6 +23,8 @@ import {
   getEvent,
   listEventLocations,
   listEventMediaPage,
+  listMediaByLocation,
+  listMediaNear,
   unlinkLocation,
   deleteMedia,
   type DiaryEvent,
@@ -46,11 +48,23 @@ const notFound = ref(false)
 // Media is paginated rather than loaded all at once, so an event with lots of
 // uploads doesn't take over the page. We hold one page at a time and let the
 // server tell us the total via the paginated response's `count`.
-const MEDIA_PAGE_SIZE = 10
+const MEDIA_PAGE_SIZE = 12
 const media = ref<Media[]>([])
 const mediaTotal = ref(0)
 const mediaFirst = ref(0) // zero-based offset of the current page, for Paginator
 const mediaLoading = ref(false)
+
+// When a location is selected the media panel switches from the full paginated
+// list to a fixed set: the location's own media first, then the nearest media
+// in the event to fill up to MEDIA_PAGE_SIZE. Null means "show the full list".
+const locationMedia = ref<Media[] | null>(null)
+// Radius (km) larger than any distance on Earth (~20,004 km half-circumference),
+// so the "nearest" query ranks all geotagged event media by distance rather
+// than capping it to a small area.
+const NEAR_RADIUS_KM = 25000
+
+// The media whose location is currently pinned on the map (the camera marker).
+const selectedMedia = ref<Media | null>(null)
 
 const editVisible = ref(false)
 const addVisible = ref(false)
@@ -92,6 +106,89 @@ const selectedId = ref<number | null>(null)
 function toggleSelect(id: number) {
   if (!markerNumberById.value.has(id)) return
   selectedId.value = selectedId.value === id ? null : id
+}
+
+function clearSelection() {
+  selectedId.value = null
+}
+
+// The link backing the current selection, if any.
+const selectedLink = computed(() => links.value.find((l) => l.id === selectedId.value) ?? null)
+
+// True while the media panel is showing a location's media rather than the
+// full paginated list.
+const inLocationMode = computed(() => locationMedia.value !== null)
+
+// What the media grid renders: the location set when filtering, else the page.
+const displayedMedia = computed(() => locationMedia.value ?? media.value)
+
+// Whether the panel has nothing to show, accounting for both modes.
+const mediaPanelEmpty = computed(() =>
+  inLocationMode.value ? displayedMedia.value.length === 0 : mediaTotal.value === 0,
+)
+
+// Name shown in the "media near …" banner while filtering by a location.
+const locationFilterName = computed(() =>
+  inLocationMode.value && selectedLink.value
+    ? selectedLink.value.location_detail.title || 'Untitled location'
+    : '',
+)
+
+// The point handed to the map for the camera marker (only when the selected
+// media actually carries an embedded location).
+const mediaMapPoint = computed(() => {
+  const m = selectedMedia.value
+  if (!m || m.lat === null || m.lng === null) return null
+  return { lat: m.lat, lng: m.lng, title: m.note || 'Selected media' }
+})
+
+// Load a location's media into the panel: its own (FK) media first, then the
+// nearest event media to top up to MEDIA_PAGE_SIZE. Selecting a location drives
+// this; deselecting (selectedId -> null) restores the paginated list.
+async function loadLocationMedia(link: EventLocation) {
+  mediaLoading.value = true
+  try {
+    const linkedPage = await listMediaByLocation(eventId.value, link.location, MEDIA_PAGE_SIZE)
+    const linked = linkedPage.results
+    let combined = linked
+    const remaining = MEDIA_PAGE_SIZE - linked.length
+    const { lat, lng } = link.location_detail
+    if (remaining > 0 && lat !== null && lng !== null) {
+      // Over-fetch then drop any already-linked rows the distance query returns,
+      // so we still end up with `remaining` distinct nearby items.
+      const nearPage = await listMediaNear(
+        eventId.value,
+        lng,
+        lat,
+        NEAR_RADIUS_KM,
+        remaining + linked.length,
+      )
+      const linkedIds = new Set(linked.map((m) => m.id))
+      const near = nearPage.results.filter((m) => !linkedIds.has(m.id)).slice(0, remaining)
+      combined = [...linked, ...near]
+    }
+    locationMedia.value = combined
+  } catch {
+    toast.add({ severity: 'error', summary: 'Could not load media for this location', life: 4000 })
+    locationMedia.value = []
+  } finally {
+    mediaLoading.value = false
+  }
+}
+
+// Selecting a location filters the media panel; clearing it restores the list.
+watch(selectedId, (id) => {
+  if (id === null) {
+    locationMedia.value = null
+    return
+  }
+  const link = links.value.find((l) => l.id === id)
+  if (link) loadLocationMedia(link)
+})
+
+// Toggle the camera marker for a media item. Clicking the same one clears it.
+function showOnMap(m: Media) {
+  selectedMedia.value = selectedMedia.value?.id === m.id ? null : m
 }
 
 const createdLabel = computed(() => (event.value ? formatDate(event.value.created_at) : ''))
@@ -240,8 +337,13 @@ function openMedia(m: Media) {
 }
 
 function onMediaUpdated(updated: Media) {
-  const i = media.value.findIndex((m) => m.id === updated.id)
-  if (i !== -1) media.value[i] = updated
+  const replace = (arr: Media[]) => {
+    const i = arr.findIndex((m) => m.id === updated.id)
+    if (i !== -1) arr[i] = updated
+  }
+  replace(media.value)
+  if (locationMedia.value) replace(locationMedia.value)
+  if (selectedMedia.value?.id === updated.id) selectedMedia.value = updated
 }
 
 function confirmDeleteMedia(m: Media) {
@@ -255,11 +357,17 @@ function confirmDeleteMedia(m: Media) {
       try {
         await deleteMedia(m.id)
         viewMediaVisible.value = false
-        // Reload the page we're on; if that was the last item on the last page,
-        // step back so we don't land on an empty page.
-        const currentPage = Math.floor(mediaFirst.value / MEDIA_PAGE_SIZE) + 1
-        const lastPage = Math.max(1, Math.ceil((mediaTotal.value - 1) / MEDIA_PAGE_SIZE))
-        await loadMedia(Math.min(currentPage, lastPage))
+        if (selectedMedia.value?.id === m.id) selectedMedia.value = null
+        if (inLocationMode.value && selectedLink.value) {
+          // Filtered view: rebuild it so a freed slot can pull in another nearby.
+          await loadLocationMedia(selectedLink.value)
+        } else {
+          // Reload the page we're on; if that was the last item on the last page,
+          // step back so we don't land on an empty page.
+          const currentPage = Math.floor(mediaFirst.value / MEDIA_PAGE_SIZE) + 1
+          const lastPage = Math.max(1, Math.ceil((mediaTotal.value - 1) / MEDIA_PAGE_SIZE))
+          await loadMedia(Math.min(currentPage, lastPage))
+        }
         toast.add({ severity: 'success', summary: 'Media deleted', life: 2500 })
       } catch (e) {
         const detail = e instanceof ApiError ? e.message : 'Could not delete the media.'
@@ -268,7 +376,6 @@ function confirmDeleteMedia(m: Media) {
     },
   })
 }
-
 </script>
 
 <template>
@@ -315,125 +422,151 @@ function confirmDeleteMedia(m: Media) {
 
         <p v-if="event.description" class="detail-desc">{{ event.description }}</p>
 
-        <section class="detail-media">
-          <div class="detail-media__head">
-            <h2>Media</h2>
-            <Button
-              label="Add media"
-              icon="pi pi-plus"
-              size="small"
-              @click="addMediaVisible = true"
+        <div class="detail-columns">
+          <section class="detail-media">
+            <div class="detail-media__head">
+              <h2>Media</h2>
+              <Button
+                label="Add media"
+                icon="pi pi-plus"
+                size="small"
+                @click="addMediaVisible = true"
+              />
+            </div>
+
+            <p v-if="locationFilterName" class="detail-media__banner">
+              <i class="pi pi-map-marker" />
+              <span>
+                Showing media at and near <strong>{{ locationFilterName }}</strong
+                >. <a class="detail-media__clear" @click="clearSelection">Clear filter.</a>
+              </span>
+            </p>
+
+            <p v-if="mediaPanelEmpty" class="detail-media__empty">
+              {{
+                inLocationMode
+                  ? 'No media at or near this location.'
+                  : 'No media on this event yet. Upload photos or notes.'
+              }}
+            </p>
+
+            <template v-else>
+              <ul class="media-grid" :class="{ 'media-grid--loading': mediaLoading }">
+                <li v-for="m in displayedMedia" :key="m.id" class="media-cell">
+                  <button
+                    type="button"
+                    class="media-tile"
+                    :title="m.note || mediaLocationName(m) || 'Media'"
+                    @click="openMedia(m)"
+                  >
+                    <img
+                      v-if="m.media_type === 'img' && m.file_url"
+                      :src="m.file_url"
+                      :alt="m.note || 'Media image'"
+                    />
+                    <i v-else class="pi pi-file media-tile__file" />
+                    <span v-if="m.note" class="media-tile__note">{{ m.note }}</span>
+                  </button>
+                  <button
+                    v-if="m.lat !== null && m.lng !== null"
+                    type="button"
+                    class="media-map-btn"
+                    :class="{ 'media-map-btn--active': selectedMedia?.id === m.id }"
+                    :aria-label="selectedMedia?.id === m.id ? 'Hide on map' : 'Show on map'"
+                    :title="selectedMedia?.id === m.id ? 'Hide on map' : 'Show on map'"
+                    @click.stop="showOnMap(m)"
+                  >
+                    <i class="pi pi-map-marker" />
+                  </button>
+                </li>
+              </ul>
+
+              <Paginator
+                v-if="!inLocationMode && mediaTotal > MEDIA_PAGE_SIZE"
+                :first="mediaFirst"
+                :rows="MEDIA_PAGE_SIZE"
+                :total-records="mediaTotal"
+                class="detail-media__paginator"
+                @page="onMediaPage"
+              />
+            </template>
+          </section>
+
+          <section class="detail-locations">
+            <div class="detail-locations__head">
+              <h2>Locations</h2>
+              <Button
+                label="Add location"
+                icon="pi pi-plus"
+                size="small"
+                @click="addVisible = true"
+              />
+            </div>
+
+            <LocationMap
+              v-if="mapPoints.length || mediaMapPoint"
+              :points="mapPoints"
+              :selected-id="selectedId"
+              :media-point="mediaMapPoint"
+              readonly
+              class="detail-locations__map"
+              @select="selectedId = $event as number"
             />
-          </div>
 
-          <p v-if="mediaTotal === 0" class="detail-media__empty">
-            No media on this event yet. Upload photos or notes.
-          </p>
+            <p v-if="links.length === 0" class="detail-locations__empty">
+              No locations on this event yet. Add the places this event happened.
+            </p>
 
-          <template v-else>
-            <ul class="media-grid" :class="{ 'media-grid--loading': mediaLoading }">
-              <li v-for="m in media" :key="m.id">
-                <button
-                  type="button"
-                  class="media-tile"
-                  :title="m.note || mediaLocationName(m) || 'Media'"
-                  @click="openMedia(m)"
-                >
-                  <img
-                    v-if="m.media_type === 'img' && m.file_url"
-                    :src="m.file_url"
-                    :alt="m.note || 'Media image'"
-                  />
-                  <i v-else class="pi pi-file media-tile__file" />
-                  <span v-if="m.note" class="media-tile__note">{{ m.note }}</span>
-                </button>
+            <ul v-else class="loc-list">
+              <li
+                v-for="link in links"
+                :key="link.id"
+                class="loc-item"
+                :class="{
+                  'loc-item--clickable': markerNumberById.has(link.id),
+                  'loc-item--active': selectedId === link.id,
+                }"
+                @click="toggleSelect(link.id)"
+              >
+                <div class="loc-item__main">
+                  <span v-if="markerNumberById.has(link.id)" class="loc-item__num">
+                    {{ markerNumberById.get(link.id) }}
+                  </span>
+                  <i v-else class="pi pi-map-marker loc-item__pin" />
+                  <div>
+                    <p class="loc-item__name">
+                      {{ link.location_detail.title || 'Untitled location' }}
+                    </p>
+                    <p class="loc-item__coords">
+                      {{ link.location_detail.lat?.toFixed(5) }},
+                      {{ link.location_detail.lng?.toFixed(5) }}
+                    </p>
+                  </div>
+                </div>
+                <div class="loc-item__times">
+                  <span>Arrival: {{ formatDateTime(link.arrival) }}</span>
+                  <span>Departure: {{ formatDateTime(link.departure) }}</span>
+                </div>
+                <Button
+                  icon="pi pi-pencil"
+                  severity="secondary"
+                  text
+                  rounded
+                  aria-label="Edit location times"
+                  @click.stop="openEdit(link)"
+                />
+                <Button
+                  icon="pi pi-times"
+                  severity="danger"
+                  text
+                  rounded
+                  aria-label="Remove location"
+                  @click.stop="confirmRemoveLocation(link)"
+                />
               </li>
             </ul>
-
-            <Paginator
-              v-if="mediaTotal > MEDIA_PAGE_SIZE"
-              :first="mediaFirst"
-              :rows="MEDIA_PAGE_SIZE"
-              :total-records="mediaTotal"
-              class="detail-media__paginator"
-              @page="onMediaPage"
-            />
-          </template>
-        </section>
-
-        <section class="detail-locations">
-          <div class="detail-locations__head">
-            <h2>Locations</h2>
-            <Button
-              label="Add location"
-              icon="pi pi-plus"
-              size="small"
-              @click="addVisible = true"
-            />
-          </div>
-
-          <LocationMap
-            v-if="mapPoints.length"
-            :points="mapPoints"
-            :selected-id="selectedId"
-            readonly
-            class="detail-locations__map"
-            @select="selectedId = $event as number"
-          />
-
-          <p v-if="links.length === 0" class="detail-locations__empty">
-            No locations on this event yet. Add the places this event happened.
-          </p>
-
-          <ul v-else class="loc-list">
-            <li
-              v-for="link in links"
-              :key="link.id"
-              class="loc-item"
-              :class="{
-                'loc-item--clickable': markerNumberById.has(link.id),
-                'loc-item--active': selectedId === link.id,
-              }"
-              @click="toggleSelect(link.id)"
-            >
-              <div class="loc-item__main">
-                <span v-if="markerNumberById.has(link.id)" class="loc-item__num">
-                  {{ markerNumberById.get(link.id) }}
-                </span>
-                <i v-else class="pi pi-map-marker loc-item__pin" />
-                <div>
-                  <p class="loc-item__name">
-                    {{ link.location_detail.title || 'Untitled location' }}
-                  </p>
-                  <p class="loc-item__coords">
-                    {{ link.location_detail.lat?.toFixed(5) }},
-                    {{ link.location_detail.lng?.toFixed(5) }}
-                  </p>
-                </div>
-              </div>
-              <div class="loc-item__times">
-                <span>Arrival: {{ formatDateTime(link.arrival) }}</span>
-                <span>Departure: {{ formatDateTime(link.departure) }}</span>
-              </div>
-              <Button
-                icon="pi pi-pencil"
-                severity="secondary"
-                text
-                rounded
-                aria-label="Edit location times"
-                @click.stop="openEdit(link)"
-              />
-              <Button
-                icon="pi pi-times"
-                severity="danger"
-                text
-                rounded
-                aria-label="Remove location"
-                @click.stop="confirmRemoveLocation(link)"
-              />
-            </li>
-          </ul>
-        </section>
+          </section>
+        </div>
 
         <EventFormDialog v-model:visible="editVisible" :event="event" @saved="onEventSaved" />
         <AddLocationDialog
@@ -526,6 +659,12 @@ function confirmDeleteMedia(m: Media) {
   margin: 1.25rem 0 0;
   line-height: 1.6;
   white-space: pre-wrap;
+}
+
+/* Single column by default: media stacks above locations. On wide viewports
+   (see breakpoint below) this becomes a two-column grid. */
+.detail-columns {
+  display: block;
 }
 
 .detail-locations {
@@ -667,6 +806,30 @@ function confirmDeleteMedia(m: Media) {
   color: var(--p-text-muted-color, #6b7280);
 }
 
+.detail-media__banner {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 1rem;
+  padding: 0.6rem 0.85rem;
+  border: 1px solid var(--p-primary-200, #c7d2fe);
+  background: var(--p-primary-50, #eef2ff);
+  border-radius: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--p-text-color, #374151);
+}
+
+.detail-media__banner i {
+  color: var(--p-primary-color, #6366f1);
+}
+
+.detail-media__clear {
+  color: var(--p-primary-color, #6366f1);
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
 .media-grid {
   list-style: none;
   margin: 0;
@@ -684,6 +847,47 @@ function confirmDeleteMedia(m: Media) {
 
 .detail-media__paginator {
   margin-top: 1rem;
+}
+
+.media-cell {
+  position: relative;
+}
+
+/* Per-tile "show on map" control: only present for geotagged media. */
+.media-map-btn {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.4rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 0.8rem;
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity 0.15s,
+    background 0.15s;
+}
+
+.media-cell:hover .media-map-btn,
+.media-map-btn:focus-visible,
+.media-map-btn--active {
+  opacity: 1;
+}
+
+.media-map-btn:hover {
+  background: rgba(0, 0, 0, 0.75);
+}
+
+.media-map-btn--active {
+  background: #f59e0b;
 }
 
 .media-tile {
@@ -736,5 +940,21 @@ function confirmDeleteMedia(m: Media) {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* Wide screens: give the page room and lay media (left) beside locations
+   (right) instead of stacking them. align-items: start keeps each column at
+   the top so they don't stretch to match the taller one. */
+@media (min-width: 75rem) {
+  .detail-body {
+    max-width: 80rem;
+  }
+
+  .detail-columns {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 2.5rem;
+    align-items: start;
+  }
 }
 </style>

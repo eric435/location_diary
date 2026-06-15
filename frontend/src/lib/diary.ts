@@ -62,6 +62,9 @@ export interface Media {
   media_type: 'img' | 'txt'
   /** When the media itself was created, e.g. a photo's capture time. */
   timestamp: string | null
+  /** EXIF-derived position, or null when the media has no embedded location. */
+  lat: number | null
+  lng: number | null
   created_at: string
 }
 
@@ -201,6 +204,37 @@ export function listEventMediaPage(
 ): Promise<Paginated<Media>> {
   return apiFetch<Paginated<Media>>(
     `/media/?event=${eventId}&page=${page}&page_size=${pageSize}`,
+  )
+}
+
+/**
+ * Media on an event that is linked (via FK) to a specific location, newest
+ * first. Used to show a location's own media before filling in nearby shots.
+ */
+export function listMediaByLocation(
+  eventId: number,
+  locationId: number,
+  pageSize: number,
+): Promise<Paginated<Media>> {
+  return apiFetch<Paginated<Media>>(
+    `/media/?event=${eventId}&location=${locationId}&page=1&page_size=${pageSize}`,
+  )
+}
+
+/**
+ * Event media ordered nearest-first to a point, within `km`. The server uses a
+ * PostGIS distance lookup; media without an embedded point is excluded. Pass a
+ * large `km` to effectively rank all geotagged media by distance.
+ */
+export function listMediaNear(
+  eventId: number,
+  lng: number,
+  lat: number,
+  km: number,
+  pageSize: number,
+): Promise<Paginated<Media>> {
+  return apiFetch<Paginated<Media>>(
+    `/media/?event=${eventId}&near=${lng},${lat},${km}&page=1&page_size=${pageSize}`,
   )
 }
 

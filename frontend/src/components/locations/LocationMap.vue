@@ -33,8 +33,21 @@ const props = withDefaults(
     focusZoom?: number
     /** Id of the highlighted marker (readonly mode); bounces and pans to it. */
     selectedId?: number | string | null
+    /**
+     * A one-off point for a selected piece of media (readonly mode). Rendered
+     * with a distinct marker (camera) and panned to, so it reads apart from the
+     * numbered location pins. Null clears it.
+     */
+    mediaPoint?: (Coords & { title?: string }) | null
   }>(),
-  { modelValue: null, points: () => [], readonly: false, focusZoom: 10, selectedId: null },
+  {
+    modelValue: null,
+    points: () => [],
+    readonly: false,
+    focusZoom: 10,
+    selectedId: null,
+    mediaPoint: null,
+  },
 )
 
 const emit = defineEmits<{
@@ -53,6 +66,8 @@ const staticPins: {
   el: HTMLElement
   id?: number | string
 }[] = []
+// The distinct marker for a selected piece of media, when one is set.
+let mediaPin: google.maps.marker.AdvancedMarkerElement | null = null
 
 // North america center
 const DEFAULT_CENTER: Coords = { lat: 40, lng: -100 }
@@ -77,6 +92,7 @@ onMounted(async () => {
 
     if (props.readonly) {
       renderStaticPins()
+      renderMediaPin()
     } else {
       if (props.modelValue) placePin(props.modelValue)
       map.addListener('click', (e: google.maps.MapMouseEvent) => {
@@ -91,6 +107,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   if (pin) pin.map = null
   staticPins.forEach((s) => (s.marker.map = null))
+  if (mediaPin) mediaPin.map = null
 })
 
 /** Drop / move the single editable pin and emit the new coordinates. */
@@ -161,6 +178,40 @@ function renderStaticPins() {
   applySelection()
 }
 
+/** Build the camera marker used for a selected piece of media. */
+function makeMediaPinEl(): HTMLElement {
+  const el = document.createElement('div')
+  el.className = 'loc-map-media-pin'
+  el.innerHTML = '<i class="pi pi-camera"></i>'
+  return el
+}
+
+// Drop / move / clear the media marker and pan to it, so a chosen photo's
+// location stands out against the numbered location pins.
+function renderMediaPin() {
+  if (!map) return
+  if (!props.mediaPoint) {
+    if (mediaPin) {
+      mediaPin.map = null
+      mediaPin = null
+    }
+    return
+  }
+  if (!mediaPin) {
+    mediaPin = new google.maps.marker.AdvancedMarkerElement({
+      map,
+      position: props.mediaPoint,
+      title: props.mediaPoint.title,
+      content: makeMediaPinEl(),
+      zIndex: 1100,
+    })
+  } else {
+    mediaPin.position = props.mediaPoint
+  }
+  map.panTo(props.mediaPoint)
+  if ((map.getZoom() ?? 0) < props.focusZoom) map.setZoom(props.focusZoom)
+}
+
 // Highlight the selected marker (bounce + raise + recolour, via CSS) and pan to
 // it so the chosen row stands out.
 function applySelection() {
@@ -187,6 +238,8 @@ watch(
 watch(() => props.points, renderStaticPins, { deep: true })
 
 watch(() => props.selectedId, applySelection)
+
+watch(() => props.mediaPoint, renderMediaPin)
 </script>
 
 <template>
@@ -260,5 +313,21 @@ watch(() => props.selectedId, applySelection)
   to {
     transform: translateY(-7px) scale(1.15);
   }
+}
+
+/* Media marker: deliberately unlike the round numbered location pins — an amber
+   rounded square with a camera glyph. */
+.loc-map-media-pin {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  border-radius: 0.4rem;
+  background: #f59e0b;
+  color: #fff;
+  border: 2px solid #fff;
+  font-size: 0.95rem;
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.4);
 }
 </style>
