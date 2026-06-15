@@ -14,7 +14,7 @@ import AddLocationDialog from '@/components/locations/AddLocationDialog.vue'
 import EditLocationDialog from '@/components/locations/EditLocationDialog.vue'
 import LocationMap, { type MapPoint } from '@/components/locations/LocationMap.vue'
 import AddMediaDialog from '@/components/media/AddMediaDialog.vue'
-import EditMediaDialog from '@/components/media/EditMediaDialog.vue'
+import MediaViewerDialog from '@/components/media/MediaViewerDialog.vue'
 import { useEventsStore } from '@/stores/events'
 import { formatDate, formatDateTime } from '@/lib/format'
 import { ApiError } from '@/lib/http'
@@ -46,10 +46,10 @@ const notFound = ref(false)
 const editVisible = ref(false)
 const addVisible = ref(false)
 
-// Media dialogs: add, and edit (the row currently open).
+// Media dialogs: add, and the viewer (the thumbnail currently open).
 const addMediaVisible = ref(false)
-const editMediaVisible = ref(false)
-const editingMedia = ref<Media | null>(null)
+const viewMediaVisible = ref(false)
+const viewingMedia = ref<Media | null>(null)
 
 // The link currently open in the edit-times dialog.
 const editLinkVisible = ref(false)
@@ -203,9 +203,9 @@ function onMediaAdded(m: Media) {
   media.value.unshift(m)
 }
 
-function openEditMedia(m: Media) {
-  editingMedia.value = m
-  editMediaVisible.value = true
+function openMedia(m: Media) {
+  viewingMedia.value = m
+  viewMediaVisible.value = true
 }
 
 function onMediaUpdated(updated: Media) {
@@ -224,6 +224,7 @@ function confirmDeleteMedia(m: Media) {
       try {
         await deleteMedia(m.id)
         media.value = media.value.filter((x) => x.id !== m.id)
+        viewMediaVisible.value = false
         toast.add({ severity: 'success', summary: 'Media deleted', life: 2500 })
       } catch (e) {
         const detail = e instanceof ApiError ? e.message : 'Could not delete the media.'
@@ -278,6 +279,41 @@ function confirmDeleteMedia(m: Media) {
         </section>
 
         <p v-if="event.description" class="detail-desc">{{ event.description }}</p>
+
+        <section class="detail-media">
+          <div class="detail-media__head">
+            <h2>Media</h2>
+            <Button
+              label="Add media"
+              icon="pi pi-plus"
+              size="small"
+              @click="addMediaVisible = true"
+            />
+          </div>
+
+          <p v-if="media.length === 0" class="detail-media__empty">
+            No media on this event yet. Upload photos or notes.
+          </p>
+
+          <ul v-else class="media-grid">
+            <li v-for="m in media" :key="m.id">
+              <button
+                type="button"
+                class="media-tile"
+                :title="m.note || mediaLocationName(m) || 'Media'"
+                @click="openMedia(m)"
+              >
+                <img
+                  v-if="m.media_type === 'img' && m.file_url"
+                  :src="m.file_url"
+                  :alt="m.note || 'Media image'"
+                />
+                <i v-else class="pi pi-file media-tile__file" />
+                <span v-if="m.note" class="media-tile__note">{{ m.note }}</span>
+              </button>
+            </li>
+          </ul>
+        </section>
 
         <section class="detail-locations">
           <div class="detail-locations__head">
@@ -353,72 +389,6 @@ function confirmDeleteMedia(m: Media) {
           </ul>
         </section>
 
-        <section class="detail-media">
-          <div class="detail-media__head">
-            <h2>Media</h2>
-            <Button
-              label="Add media"
-              icon="pi pi-plus"
-              size="small"
-              @click="addMediaVisible = true"
-            />
-          </div>
-
-          <p v-if="media.length === 0" class="detail-media__empty">
-            No media on this event yet. Upload photos or notes.
-          </p>
-
-          <ul v-else class="media-list">
-            <li v-for="m in media" :key="m.id" class="media-item">
-              <a
-                v-if="m.media_type === 'img' && m.file_url"
-                :href="m.file_url"
-                target="_blank"
-                rel="noopener"
-                class="media-item__thumb"
-              >
-                <img :src="m.file_url" :alt="m.note || 'Media image'" />
-              </a>
-              <a
-                v-else-if="m.file_url"
-                :href="m.file_url"
-                target="_blank"
-                rel="noopener"
-                class="media-item__file"
-              >
-                <i class="pi pi-file" />
-              </a>
-
-              <div class="media-item__body">
-                <p v-if="m.note" class="media-item__note">{{ m.note }}</p>
-                <p v-else class="media-item__note media-item__note--muted">No note</p>
-                <p class="media-item__meta">
-                  <span>{{ m.mime_type || 'unknown type' }}</span>
-                  <span v-if="m.timestamp">· Captured {{ formatDateTime(m.timestamp) }}</span>
-                  <span v-if="mediaLocationName(m)">· {{ mediaLocationName(m) }}</span>
-                </p>
-              </div>
-
-              <Button
-                icon="pi pi-pencil"
-                severity="secondary"
-                text
-                rounded
-                aria-label="Edit media"
-                @click="openEditMedia(m)"
-              />
-              <Button
-                icon="pi pi-trash"
-                severity="danger"
-                text
-                rounded
-                aria-label="Delete media"
-                @click="confirmDeleteMedia(m)"
-              />
-            </li>
-          </ul>
-        </section>
-
         <EventFormDialog v-model:visible="editVisible" :event="event" @saved="onEventSaved" />
         <AddLocationDialog
           v-model:visible="addVisible"
@@ -434,14 +404,14 @@ function confirmDeleteMedia(m: Media) {
         <AddMediaDialog
           v-model:visible="addMediaVisible"
           :event-id="event.id"
-          :links="links"
           @added="onMediaAdded"
         />
-        <EditMediaDialog
-          v-model:visible="editMediaVisible"
-          :media="editingMedia"
+        <MediaViewerDialog
+          v-model:visible="viewMediaVisible"
+          :media="viewingMedia"
           :links="links"
           @saved="onMediaUpdated"
+          @delete="confirmDeleteMedia"
         />
       </template>
     </main>
@@ -651,65 +621,64 @@ function confirmDeleteMedia(m: Media) {
   color: var(--p-text-muted-color, #6b7280);
 }
 
-.media-list {
+.media-grid {
   list-style: none;
   margin: 0;
   padding: 0;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(8rem, 1fr));
   gap: 0.75rem;
 }
 
-.media-item {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  padding: 0.85rem 1rem;
+.media-tile {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  padding: 0;
   border: 1px solid var(--p-content-border-color, #e5e7eb);
   border-radius: 0.75rem;
-}
-
-.media-item__thumb,
-.media-item__file {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 3.5rem;
-  height: 3.5rem;
-  flex-shrink: 0;
-  border-radius: 0.5rem;
   overflow: hidden;
   background: var(--p-content-border-color, #f3f4f6);
-  color: var(--p-text-muted-color, #6b7280);
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    transform 0.15s;
 }
 
-.media-item__thumb img {
+.media-tile:hover {
+  border-color: var(--p-primary-color, #6366f1);
+  transform: translateY(-2px);
+}
+
+.media-tile img {
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
 
-.media-item__body {
-  flex: 1;
-  min-width: 0;
-}
-
-.media-item__note {
-  margin: 0;
-  white-space: pre-wrap;
-}
-
-.media-item__note--muted {
-  color: var(--p-text-muted-color, #6b7280);
-  font-style: italic;
-}
-
-.media-item__meta {
-  margin: 0.25rem 0 0;
+.media-tile__file {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-  font-size: 0.8rem;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  font-size: 2rem;
   color: var(--p-text-muted-color, #6b7280);
+}
+
+.media-tile__note {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 0.3rem 0.5rem;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.65));
+  color: #fff;
+  font-size: 0.75rem;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 </style>
