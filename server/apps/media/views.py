@@ -6,6 +6,7 @@ from django.contrib.gis.measure import D
 from rest_framework import permissions, viewsets
 from rest_framework.exceptions import ValidationError
 
+from .pagination import MediaPagination
 from .serializers import MediaSerializer
 
 
@@ -23,6 +24,7 @@ class MediaViewSet(viewsets.ModelViewSet):
     queryset = Media.objects.all()
     serializer_class = MediaSerializer
     permission_classes = [permissions.IsAuthenticated, IsOwner]
+    pagination_class = MediaPagination
 
     # Primary defense: a user only ever sees/touches their own media.
     # A non-owner requesting another user's media gets a 404, not a 403.

@@ -178,6 +178,32 @@ def test_cascade_delete_from_event_removes_file(event, media_storage):
     assert not default_storage.exists(name)
 
 
+# --- pagination -------------------------------------------------------------
+
+
+def test_page_size_query_param_overrides_default(auth_client, event, media_storage):
+    for i in range(5):
+        _make_media(event, name=f"p{i}.png")
+
+    resp = auth_client.get(f"{MEDIA_URL}?page_size=2")
+
+    assert resp.status_code == 200
+    assert len(resp.data["results"]) == 2
+    assert resp.data["count"] == 5
+    assert resp.data["next"] is not None
+
+
+def test_page_size_is_capped_at_max(auth_client, event, media_storage):
+    for i in range(5):
+        _make_media(event, name=f"p{i}.png")
+
+    # Asking for more than max_page_size (100) is clamped, not honored verbatim.
+    resp = auth_client.get(f"{MEDIA_URL}?page_size=1000")
+
+    assert resp.status_code == 200
+    assert len(resp.data["results"]) == 5
+
+
 # --- geotagged point: read fields + ?near= filter ---------------------------
 
 
