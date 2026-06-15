@@ -95,15 +95,24 @@ function onDelete() {
     @update:visible="emit('update:visible', $event)"
   >
     <div v-if="media" class="viewer">
-      <a
-        v-if="media.media_type === 'img' && media.file_url"
-        :href="media.file_url"
-        target="_blank"
-        rel="noopener"
-        class="viewer__preview"
-      >
-        <img :src="media.file_url" :alt="media.note || 'Media image'" />
-      </a>
+      <!-- The preview just displays the image; it is NOT a link. The dialog
+      opens centered over the thumbnail the user clicked, so a link here would
+      sit under the pointer and a stray second click would open the raw URL in a
+      new tab. Viewing the original is an explicit, labelled action below. -->
+      <template v-if="media.media_type === 'img' && media.file_url">
+        <div class="viewer__preview">
+          <img :src="media.file_url" :alt="media.note || 'Media image'" />
+        </div>
+        <a
+          :href="media.file_url"
+          target="_blank"
+          rel="noopener"
+          class="viewer__original"
+        >
+          <i class="pi pi-external-link" />
+          <span>Open original</span>
+        </a>
+      </template>
       <a
         v-else-if="media.file_url"
         :href="media.file_url"
@@ -178,7 +187,7 @@ function onDelete() {
   display: block;
   border-radius: 0.5rem;
   overflow: hidden;
-  background: var(--p-content-border-color, #f3f4f6);
+  background: var(--p-dialog-background, var(--p-content-background, #fff));
 }
 
 .viewer__preview img {
@@ -186,7 +195,24 @@ function onDelete() {
   width: 100%;
   max-height: 28rem;
   object-fit: contain;
-  background: #000;
+  /* Match the modal so letterboxing on non-filling images blends in. */
+  background: var(--p-dialog-background, var(--p-content-background, #fff));
+}
+
+.viewer__original {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 0.4rem;
+  margin-top: -0.5rem;
+  font-size: 0.85rem;
+  color: var(--p-text-muted-color, #6b7280);
+  text-decoration: none;
+}
+
+.viewer__original:hover {
+  color: var(--p-primary-color, #6366f1);
+  text-decoration: underline;
 }
 
 .viewer__file {

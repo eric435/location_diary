@@ -5,6 +5,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
 import Button from 'primevue/button'
+import Paginator, { type PageState } from 'primevue/paginator'
 import ProgressSpinner from 'primevue/progressspinner'
 import { useConfirm } from 'primevue/useconfirm'
 import { useToast } from 'primevue/usetoast'
@@ -21,7 +22,7 @@ import { ApiError } from '@/lib/http'
 import {
   getEvent,
   listEventLocations,
-  listEventMedia,
+  listEventMediaPage,
   unlinkLocation,
   deleteMedia,
   type DiaryEvent,
@@ -39,9 +40,17 @@ const eventId = computed(() => Number(route.params.id))
 
 const event = ref<DiaryEvent | null>(null)
 const links = ref<EventLocation[]>([])
-const media = ref<Media[]>([])
 const loading = ref(true)
 const notFound = ref(false)
+
+// Media is paginated rather than loaded all at once, so an event with lots of
+// uploads doesn't take over the page. We hold one page at a time and let the
+// server tell us the total via the paginated response's `count`.
+const MEDIA_PAGE_SIZE = 10
+const media = ref<Media[]>([])
+const mediaTotal = ref(0)
+const mediaFirst = ref(0) // zero-based offset of the current page, for Paginator
+const mediaLoading = ref(false)
 
 const editVisible = ref(false)
 const addVisible = ref(false)
@@ -98,11 +107,13 @@ async function load() {
     const [fetchedEvent, fetchedLinks, fetchedMedia] = await Promise.all([
       events.getById(eventId.value) ?? getEvent(eventId.value),
       listEventLocations(eventId.value),
-      listEventMedia(eventId.value),
+      listEventMediaPage(eventId.value, 1, MEDIA_PAGE_SIZE),
     ])
     event.value = fetchedEvent
     links.value = fetchedLinks
-    media.value = fetchedMedia
+    media.value = fetchedMedia.results
+    mediaTotal.value = fetchedMedia.count
+    mediaFirst.value = 0
     sortLinks()
   } catch (e) {
     if (e instanceof ApiError && e.status === 404) notFound.value = true
@@ -198,9 +209,29 @@ function mediaLocationName(m: Media): string {
   return link?.location_detail.title || 'Untitled location'
 }
 
-function onMediaAdded(m: Media) {
-  // The API returns newest-first; mirror that by prepending.
-  media.value.unshift(m)
+// Load a 1-based page of media into the panel. Failures leave the current page
+// in place and surface a toast rather than blanking the section.
+async function loadMedia(page: number) {
+  mediaLoading.value = true
+  try {
+    const data = await listEventMediaPage(eventId.value, page, MEDIA_PAGE_SIZE)
+    media.value = data.results
+    mediaTotal.value = data.count
+    mediaFirst.value = (page - 1) * MEDIA_PAGE_SIZE
+  } catch {
+    toast.add({ severity: 'error', summary: 'Could not load media', life: 4000 })
+  } finally {
+    mediaLoading.value = false
+  }
+}
+
+function onMediaPage(e: PageState) {
+  loadMedia(e.page + 1)
+}
+
+function onMediaAdded() {
+  // New media is newest-first, so it lands on page 1 — jump there to show it.
+  loadMedia(1)
 }
 
 function openMedia(m: Media) {
@@ -223,8 +254,12 @@ function confirmDeleteMedia(m: Media) {
     accept: async () => {
       try {
         await deleteMedia(m.id)
-        media.value = media.value.filter((x) => x.id !== m.id)
         viewMediaVisible.value = false
+        // Reload the page we're on; if that was the last item on the last page,
+        // step back so we don't land on an empty page.
+        const currentPage = Math.floor(mediaFirst.value / MEDIA_PAGE_SIZE) + 1
+        const lastPage = Math.max(1, Math.ceil((mediaTotal.value - 1) / MEDIA_PAGE_SIZE))
+        await loadMedia(Math.min(currentPage, lastPage))
         toast.add({ severity: 'success', summary: 'Media deleted', life: 2500 })
       } catch (e) {
         const detail = e instanceof ApiError ? e.message : 'Could not delete the media.'
@@ -291,28 +326,39 @@ function confirmDeleteMedia(m: Media) {
             />
           </div>
 
-          <p v-if="media.length === 0" class="detail-media__empty">
+          <p v-if="mediaTotal === 0" class="detail-media__empty">
             No media on this event yet. Upload photos or notes.
           </p>
 
-          <ul v-else class="media-grid">
-            <li v-for="m in media" :key="m.id">
-              <button
-                type="button"
-                class="media-tile"
-                :title="m.note || mediaLocationName(m) || 'Media'"
-                @click="openMedia(m)"
-              >
-                <img
-                  v-if="m.media_type === 'img' && m.file_url"
-                  :src="m.file_url"
-                  :alt="m.note || 'Media image'"
-                />
-                <i v-else class="pi pi-file media-tile__file" />
-                <span v-if="m.note" class="media-tile__note">{{ m.note }}</span>
-              </button>
-            </li>
-          </ul>
+          <template v-else>
+            <ul class="media-grid" :class="{ 'media-grid--loading': mediaLoading }">
+              <li v-for="m in media" :key="m.id">
+                <button
+                  type="button"
+                  class="media-tile"
+                  :title="m.note || mediaLocationName(m) || 'Media'"
+                  @click="openMedia(m)"
+                >
+                  <img
+                    v-if="m.media_type === 'img' && m.file_url"
+                    :src="m.file_url"
+                    :alt="m.note || 'Media image'"
+                  />
+                  <i v-else class="pi pi-file media-tile__file" />
+                  <span v-if="m.note" class="media-tile__note">{{ m.note }}</span>
+                </button>
+              </li>
+            </ul>
+
+            <Paginator
+              v-if="mediaTotal > MEDIA_PAGE_SIZE"
+              :first="mediaFirst"
+              :rows="MEDIA_PAGE_SIZE"
+              :total-records="mediaTotal"
+              class="detail-media__paginator"
+              @page="onMediaPage"
+            />
+          </template>
         </section>
 
         <section class="detail-locations">
@@ -628,6 +674,16 @@ function confirmDeleteMedia(m: Media) {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(8rem, 1fr));
   gap: 0.75rem;
+}
+
+/* Dim the grid while a new page is loading so the swap reads as intentional. */
+.media-grid--loading {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.detail-media__paginator {
+  margin-top: 1rem;
 }
 
 .media-tile {

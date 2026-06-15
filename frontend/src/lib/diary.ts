@@ -192,6 +192,18 @@ export function listEventMedia(eventId: number): Promise<Media[]> {
   return fetchAll<Media>(`/media/?event=${eventId}`)
 }
 
+/** One page of an event's media, newest first. The panel paginates rather than
+ * loading every item, so a media-heavy event stays manageable. */
+export function listEventMediaPage(
+  eventId: number,
+  page: number,
+  pageSize: number,
+): Promise<Paginated<Media>> {
+  return apiFetch<Paginated<Media>>(
+    `/media/?event=${eventId}&page=${page}&page_size=${pageSize}`,
+  )
+}
+
 export function createMedia(input: MediaInput): Promise<Media> {
   // Multipart: the file rides alongside the scalar fields. apiFetch leaves the
   // Content-Type unset for FormData so the browser sets the boundary.
